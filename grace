@@ -1,5 +1,5 @@
 cmdPluginAdd = {
-  Aliases = {"gracegod"}, 
+  Aliases = {"gracegod","ggod"}, 
   ArgsHint = "", 
   Info = "h",
   Function = function(arg)
