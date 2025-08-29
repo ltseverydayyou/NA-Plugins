@@ -18,7 +18,7 @@ cmdPluginAdd = {
         "litanygui",
         "epikduk",
         "mimejumpscare",
-        "PulseUI",
+        "pulseui",
       }
 
       local blockedGuiSet = {}
