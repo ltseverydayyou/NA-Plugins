@@ -47,6 +47,10 @@ cmdPluginAdd = {
 			cmdRun("afp crucifix");
 			cmdRun("afp skeletonkey");
 			cmdRun("afp plant");
+			cmdRun("afp shears");
+			cmdRun("afp cellar");
+			cmdRun("afp cuttablevines");
+			cmdRun("afp skulllock");
 			cmdRun("pesp rushnew");
 			cmdRun("pesp keyobtain");
 			cmdRun("autodel sideroomdupe");
