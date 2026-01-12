@@ -32,7 +32,7 @@ cmdPluginAdd = {
 			cmdRun("afp metal");
 			cmdRun("afp knobs");
 			cmdRun("afp knob");
-			cmdRun("afp keyobtain");
+			cmdRun("afpfind keyobtain");
 			cmdRun("autodel snare");
 			cmdRun("autodelfind surge");
 			cmdRun("afp livehintbook");
