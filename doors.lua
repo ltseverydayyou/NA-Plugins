@@ -46,6 +46,7 @@ cmdPluginAdd = {
 			cmdRun("afp libraryhintpaper");
 			cmdRun("afp crucifix");
 			cmdRun("afp skeletonkey");
+			cmdRun("afp plant");
 			cmdRun("pesp rushnew");
 			cmdRun("pesp keyobtain");
 			cmdRun("autodel sideroomdupe");
