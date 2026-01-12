@@ -47,6 +47,7 @@ cmdPluginAdd = {
 			cmdRun("afp crucifix");
 			cmdRun("afp skeletonkey");
 			cmdRun("pesp rushnew");
+			cmdRun("pesp keyobtain");
 			cmdRun("autodel sideroomdupe");
 			cmdRun("ipp");
 			startNADoors();
