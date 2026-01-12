@@ -10,6 +10,7 @@ local plrs = game:GetService("Players");
 local ss = game:GetService("SoundService");
 local rsrv = game:GetService("ReplicatedStorage");
 local hf = hookfunction;
+local hm = hookmetamethod;
 local hasHook = typeof(hf) == "function";
 local naCmds = {
 	"afp goldpile",
@@ -53,20 +54,29 @@ local naCmds = {
 	"autodel sideroomdupe",
 	"ipp"
 };
+local function lp()
+	return plrs.LocalPlayer;
+end;
+local function pg()
+	local p = lp();
+	if not p then
+		return;
+	end;
+	return p:FindFirstChildOfClass("PlayerGui");
+end;
+local function ui()
+	local g = pg();
+	if not g then
+		return;
+	end;
+	return g:FindFirstChild("MainUI") or g:FindFirstChild("MainUI", true);
+end;
 local function getMods()
-	local lp = plrs.LocalPlayer;
-	if not lp then
+	local u = ui();
+	if not u then
 		return;
 	end;
-	local pg = lp:FindFirstChildOfClass("PlayerGui");
-	if not pg then
-		return;
-	end;
-	local ui = pg:FindFirstChild("MainUI") or pg:FindFirstChild("MainUI", true);
-	if not ui then
-		return;
-	end;
-	local it = ui:FindFirstChild("Initiator");
+	local it = u:FindFirstChild("Initiator");
 	if not it then
 		return;
 	end;
@@ -97,8 +107,8 @@ local function isMainMods(inst)
 	if not it or it.Name ~= "Initiator" then
 		return false;
 	end;
-	local ui = it.Parent;
-	if not ui or ui.Name ~= "MainUI" then
+	local u = it.Parent;
+	if not u or u.Name ~= "MainUI" then
 		return false;
 	end;
 	return true;
@@ -127,7 +137,9 @@ local function startDoors()
 		end;
 		local ev = d:FindFirstChild("ClientOpen");
 		if ev then
-			ev:FireServer();
+			pcall(function()
+				ev:FireServer();
+			end);
 		end;
 	end);
 end;
@@ -137,56 +149,24 @@ local function killJam()
 	if j then
 		j:Destroy();
 	end;
-	local lp = plrs.LocalPlayer;
-	if not lp then
+	local u = ui();
+	if not u then
 		return;
 	end;
-	local pg = lp:FindFirstChildOfClass("PlayerGui");
-	if not pg then
-		return;
-	end;
-	local ui = pg:FindFirstChild("MainUI") or pg:FindFirstChild("MainUI", true);
-	if not ui then
-		return;
-	end;
-	local h1 = ui:FindFirstChild("Health", true);
+	local h1 = u:FindFirstChild("Health", true);
 	if h1 then
 		local j2 = h1:FindFirstChild("Jam");
 		if j2 then
 			j2:Destroy();
 		end;
 	end;
-	local j3 = ui:FindFirstChild("Jam", true);
+	local j3 = u:FindFirstChild("Jam", true);
 	if j3 then
 		j3:Destroy();
 	end;
 end;
 local function fixScreech()
-	local lp = plrs.LocalPlayer;
-	if not lp then
-		return;
-	end;
-	local pg = lp:FindFirstChildOfClass("PlayerGui");
-	if not pg then
-		return;
-	end;
-	local ui = pg:FindFirstChild("MainUI") or pg:FindFirstChild("MainUI", true);
-	if not ui then
-		return;
-	end;
-	local it = ui:FindFirstChild("Initiator");
-	if not it then
-		return;
-	end;
-	local mg = it:FindFirstChild("Main_Game");
-	if not mg then
-		return;
-	end;
-	local rl = mg:FindFirstChild("RemoteListener");
-	if not rl then
-		return;
-	end;
-	local m = rl:FindFirstChild("Modules");
+	local m = getMods();
 	if not m then
 		return;
 	end;
@@ -195,32 +175,225 @@ local function fixScreech()
 		sc.Name = "Screech_Noob";
 	end;
 end;
+local function keepAttr(ch, k, v)
+	if not ch then
+		return;
+	end;
+	ch:SetAttribute(k, v);
+	(ch:GetAttributeChangedSignal(k)):Connect(function()
+		if ch:GetAttribute(k) ~= v then
+			ch:SetAttribute(k, v);
+		end;
+	end);
+end;
+local function setupChar(ch)
+	if not ch then
+		return;
+	end;
+	keepAttr(ch, "Invincibility", true);
+	keepAttr(ch, "CanSlide", true);
+	keepAttr(ch, "CanJump", true);
+end;
+local function gch()
+	local p = lp();
+	if not p then
+		return;
+	end;
+	local c = p.Character;
+	return c;
+end;
+local function drop()
+	local c = gch();
+	if not c then
+		return;
+	end;
+	local hum = c:FindFirstChildOfClass("Humanoid");
+	local pp = c.PrimaryPart or c:FindFirstChild("HumanoidRootPart");
+	c:SetAttribute("Climbing", false);
+	if pp then
+		pp.Anchored = false;
+		pp.Velocity = Vector3.new();
+		pp.CFrame = pp.CFrame * CFrame.new(0, 0, (-3));
+	end;
+	if hum then
+		hum:ChangeState(Enum.HumanoidStateType.Running);
+		local anim = hum:FindFirstChildOfClass("Animator") or hum;
+		for _, tr in ipairs(anim:GetPlayingAnimationTracks()) do
+			local n = (tr.Name or ""):lower();
+			if n:find("climb") then
+				tr:Stop();
+			end;
+		end;
+	end;
+end;
+local function watchClimb(c)
+	if not c then
+		return;
+	end;
+	(c:GetAttributeChangedSignal("Climbing")):Connect(function()
+		local v = c:GetAttribute("Climbing");
+		if v then
+			task.defer(drop);
+		end;
+	end);
+end;
+local function bindChar()
+	if nd.charBound then
+		return;
+	end;
+	nd.charBound = true;
+	local p = lp();
+	if not p then
+		return;
+	end;
+	if p.Character then
+		task.defer(setupChar, p.Character);
+		task.defer(watchClimb, p.Character);
+	end;
+	nd.charConn = p.CharacterAdded:Connect(function(c)
+		task.defer(setupChar, c);
+		task.defer(watchClimb, c);
+	end);
+end;
+local function attrLoop()
+	if nd.attrConn then
+		return;
+	end;
+	nd.attrT = 0;
+	nd.attrConn = rs.Heartbeat:Connect(function(dt)
+		nd.attrT = nd.attrT + dt;
+		if nd.attrT < 0.5 then
+			return;
+		end;
+		nd.attrT = 0;
+		local p = lp();
+		local c = p and p.Character;
+		if not c then
+			return;
+		end;
+		if c:GetAttribute("Invincibility") ~= true then
+			c:SetAttribute("Invincibility", true);
+		end;
+		if c:GetAttribute("CanSlide") ~= true then
+			c:SetAttribute("CanSlide", true);
+		end;
+		if c:GetAttribute("CanJump") ~= true then
+			c:SetAttribute("CanJump", true);
+		end;
+	end);
+end;
+local function crouchLoop()
+	if nd.crouchConn then
+		return;
+	end;
+	local remf = rsrv:FindFirstChild("RemotesFolder");
+	local cr = remf and remf:FindFirstChild("Crouch");
+	if not cr then
+		return;
+	end;
+	nd.crouchT = 0;
+	nd.crouchConn = rs.Heartbeat:Connect(function(dt)
+		nd.crouchT = nd.crouchT + dt;
+		if nd.crouchT < 0.4 then
+			return;
+		end;
+		nd.crouchT = 0;
+		local p = lp();
+		local c = p and p.Character;
+		if not c then
+			return;
+		end;
+		pcall(function()
+			cr:FireServer(true, false);
+		end);
+	end);
+end;
+local function muteUiFrame(f)
+	if not f then
+		return;
+	end;
+	f.Visible = false;
+	if f:IsA("Frame") then
+		f.BackgroundTransparency = 1;
+	elseif f:IsA("ImageLabel") or f:IsA("ImageButton") then
+		f.ImageTransparency = 1;
+	end;
+	for _, d in ipairs(f:GetDescendants()) do
+		if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+			d.ImageTransparency = 1;
+			d.Visible = false;
+		elseif d:IsA("TextLabel") or d:IsA("TextButton") then
+			d.TextTransparency = 1;
+			d.Visible = false;
+		elseif d:IsA("Frame") then
+			d.BackgroundTransparency = 1;
+			d.Visible = false;
+		elseif d:IsA("Sound") then
+			d.Volume = 0;
+			d.Playing = false;
+		end;
+	end;
+end;
+local function a90UiMute()
+	local u = ui();
+	if not u then
+		return;
+	end;
+	local j = u:FindFirstChild("Jumpscare", true);
+	if not j then
+		return;
+	end;
+	local a = j:FindFirstChild("Jumpscare_A90") or j:FindFirstChild("A90", true);
+	if not a then
+		return;
+	end;
+	muteUiFrame(a);
+end;
+local function spiderUiMute()
+	local u = ui();
+	if not u then
+		return;
+	end;
+	local j = u:FindFirstChild("Jumpscare", true);
+	if not j then
+		return;
+	end;
+	local s = j:FindFirstChild("Jumpscare_Spider") or j:FindFirstChild("Spider", true);
+	if not s then
+		return;
+	end;
+	muteUiFrame(s);
+end;
 local function hookSpider()
 	if nd.spidHook then
 		return;
 	end;
 	local m = getMods();
 	if not m then
+		spiderUiMute();
 		return;
 	end;
 	local ms = m:FindFirstChild("SpiderJumpscare");
 	if not ms or (not ms:IsA("ModuleScript")) then
+		spiderUiMute();
 		return;
 	end;
 	local ok, fn = pcall(require, ms);
 	if not ok or type(fn) ~= "function" then
+		spiderUiMute();
 		return;
 	end;
 	if hasHook then
 		nd.spidHook = true;
 		local old;
 		old = hf(fn, function(...)
+			spiderUiMute();
 			return;
 		end);
 		nd.spidOld = old;
 	else
 		nd.spidHook = true;
-		nd.spidFn = fn;
+		spiderUiMute();
 	end;
 end;
 local function hookCam()
@@ -251,7 +424,6 @@ local function hookCam()
 		nd.camOld = old;
 	else
 		nd.camHook = true;
-		nd.camFn = fn;
 	end;
 end;
 local function hookA90()
@@ -270,23 +442,20 @@ local function hookA90()
 	if not ok or type(fn) ~= "function" then
 		return;
 	end;
-	local rem = rsrv:FindFirstChild("RemotesFolder");
-	rem = rem and rem:FindFirstChild("A90");
-	local lp = plrs.LocalPlayer;
-	local function safeA90(self, ...)
-		local ch = lp.Character;
-		if ch then
-			ch:SetAttribute("Invincibility", true);
+	local remf = rsrv:FindFirstChild("RemotesFolder");
+	local rem = remf and remf:FindFirstChild("A90");
+	local function safeA90(...)
+		local p = lp();
+		local c = p and p.Character;
+		if c then
+			c:SetAttribute("Invincibility", true);
 		end;
+		a90UiMute();
 		if rem then
-			rem:FireServer("didnt");
+			pcall(function()
+				rem:FireServer("didnt");
+			end);
 		end;
-		task.delay(3, function()
-			local c = lp.Character;
-			if c and c:GetAttribute("Invincibility") then
-				c:SetAttribute("Invincibility", false);
-			end;
-		end);
 	end;
 	if hasHook then
 		nd.a90Hook = true;
@@ -297,7 +466,6 @@ local function hookA90()
 		nd.a90Old = old;
 	else
 		nd.a90Hook = true;
-		nd.a90Fn = fn;
 		if rem and (not nd.a90Evt) then
 			nd.a90Evt = rem.OnClientEvent:Connect(function(...)
 				safeA90(...);
@@ -306,14 +474,14 @@ local function hookA90()
 	end;
 end;
 local function setModsHooks()
-	local lp = plrs.LocalPlayer;
-	if not lp then
+	local p = lp();
+	if not p then
 		return;
 	end;
-	local pg = lp:FindFirstChildOfClass("PlayerGui");
-	if not pg then
+	local g = pg();
+	if not g then
 		if not nd.pgConn then
-			nd.pgConn = lp.ChildAdded:Connect(function(ch)
+			nd.pgConn = p.ChildAdded:Connect(function(ch)
 				if ch:IsA("PlayerGui") then
 					if nd.modsConn then
 						nd.modsConn:Disconnect();
@@ -333,7 +501,7 @@ local function setModsHooks()
 	if nd.modsConn then
 		nd.modsConn:Disconnect();
 	end;
-	for _, d in ipairs(pg:GetDescendants()) do
+	for _, d in ipairs(g:GetDescendants()) do
 		if isMainMods(d) then
 			task.defer(hookSpider);
 			task.defer(hookA90);
@@ -341,7 +509,7 @@ local function setModsHooks()
 			break;
 		end;
 	end;
-	nd.modsConn = pg.DescendantAdded:Connect(function(inst)
+	nd.modsConn = g.DescendantAdded:Connect(function(inst)
 		if isMainMods(inst) then
 			task.defer(hookSpider);
 			task.defer(hookA90);
@@ -349,78 +517,55 @@ local function setModsHooks()
 		end;
 	end);
 end;
-local function a90UiMute()
-	local lp = plrs.LocalPlayer;
-	if not lp then
+local function hookLadder()
+	if nd.ladHook then
 		return;
 	end;
-	local pg = lp:FindFirstChildOfClass("PlayerGui");
-	if not pg then
+	if typeof(hm) ~= "function" or typeof(getnamecallmethod) ~= "function" or typeof(checkcaller) ~= "function" then
 		return;
 	end;
-	local ui = pg:FindFirstChild("MainUI") or pg:FindFirstChild("MainUI", true);
-	if not ui then
+	local remf = rsrv:FindFirstChild("RemotesFolder");
+	local rem = remf and remf:FindFirstChild("ClimbLadder");
+	if not rem then
 		return;
 	end;
-	local js = ui:FindFirstChild("Jumpscare", true);
-	if not js then
-		return;
-	end;
-	local a = js:FindFirstChild("Jumpscare_A90");
-	if not a then
-		return;
-	end;
-	a.Visible = false;
-	a.BackgroundTransparency = 1;
-	if a:FindFirstChild("Static") then
-		a.Static.Visible = false;
-		a.Static.ImageTransparency = 1;
-	end;
-	if a:FindFirstChild("Static2") then
-		a.Static2.Visible = false;
-		a.Static2.ImageTransparency = 1;
-	end;
-	if a:FindFirstChild("Face") then
-		a.Face.Visible = false;
-	end;
-	if a:FindFirstChild("FaceAngry") then
-		a.FaceAngry.Visible = false;
-	end;
-	for _, d in ipairs(script:GetChildren()) do
-		if d:IsA("Sound") then
-			d.Volume = 0;
-			d.Playing = false;
+	nd.ladHook = true;
+	local old;
+	old = hm(game, "__namecall", function(self, ...)
+		local m = getnamecallmethod and (getnamecallmethod()):lower() or "";
+		if not checkcaller() and self == rem and m == "fireserver" then
+			drop();
+			return old(self, ...);
 		end;
-	end;
+		return old(self, ...);
+	end);
+	nd.ladMm = old;
 end;
 local function plugRun()
 	for _, c in ipairs(naCmds) do
-		local ok, err = pcall(function()
-			return cmdRun(c);
+		pcall(function()
+			cmdRun(c);
 		end);
-		if not ok then
-		end;
 	end;
 	killJam();
 	fixScreech();
 	startDoors();
 	setModsHooks();
+	bindChar();
+	attrLoop();
+	crouchLoop();
 	a90UiMute();
-	local rem = rsrv:FindFirstChild("RemotesFolder");
-	rem = rem and rem:FindFirstChild("A90");
-	if rem and (not nd.a90Attr) then
-		nd.a90Attr = rem.OnClientEvent:Connect(function(p, ...)
-			local lp = plrs.LocalPlayer;
-			local ch = lp and lp.Character;
-			if ch then
-				ch:SetAttribute("Invincibility", true);
-				task.delay(3, function()
-					local c = lp.Character;
-					if c and c:GetAttribute("Invincibility") then
-						c:SetAttribute("Invincibility", false);
-					end;
-				end);
+	hookLadder();
+	local remf = rsrv:FindFirstChild("RemotesFolder");
+	local a90Rem = remf and remf:FindFirstChild("A90");
+	if a90Rem and (not nd.a90Attr) then
+		nd.a90Attr = a90Rem.OnClientEvent:Connect(function(...)
+			local p = lp();
+			local c = p and p.Character;
+			if c then
+				c:SetAttribute("Invincibility", true);
 			end;
+			a90UiMute();
 		end);
 	end;
 end;
