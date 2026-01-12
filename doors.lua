@@ -51,6 +51,7 @@ cmdPluginAdd = {
 			cmdRun("afp cellar");
 			cmdRun("afp cuttablevines");
 			cmdRun("afp skulllock");
+			cmdRun("afp wheel");
 			cmdRun("pesp rushnew");
 			cmdRun("pesp keyobtain");
 			cmdRun("autodel sideroomdupe");
