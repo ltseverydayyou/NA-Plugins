@@ -12,53 +12,123 @@ local rsrv = game:GetService("ReplicatedStorage");
 local hf = hookfunction;
 local hm = hookmetamethod;
 local hasHook = typeof(hf) == "function";
-local naCmds = {
-	"afp goldpile",
-	"afp lock",
-	"afp door",
-	"afp toolbox",
-	"afpfind stardust",
-	"afpfind fuse",
-	"afp lever",
-	"afp bandage",
-	"afp button",
-	"autodelfind giggle",
-	"autodel egg",
-	"afp metal",
-	"afp knobs",
-	"afp knob",
-	"afpfind keyobtain",
-	"autodel snare",
-	"autodelfind surge",
-	"afp livehintbook",
-	"afp livebreakerpolepickup",
-	"afp drawerdoors",
-	"afp hole",
-	"afpfind lotus",
-	"afp rolltopcontainer",
-	"afp lockpick",
-	"afp chestbox",
-	"afp libraryhintpaper",
-	"afp crucifix",
-	"afp skeletonkey",
-	"afp plant",
-	"afp shears",
-	"afp cellar",
-	"afp cuttablevines",
-	"afp skulllock",
-	"afp wheel",
-	"afp starvial",
-	"afp starbottle",
-	"pesp rushnew",
-	"pesp keyobtain",
-	"pesp a60",
-	"pesp a120",
-	"pesp backdoorrush",
-	"pesp livehintbook",
-	"autodel sideroomdupe",
-	"autodel sideroomspace",
-	"ipp"
+local promptTargets = {
+	"goldpile",
+	"lock",
+	"door",
+	"toolbox",
+	"lever",
+	"bandage",
+	"button",
+	"metal",
+	"knobs",
+	"knob",
+	"livehintbook",
+	"livebreakerpolepickup",
+	"drawerdoors",
+	"hole",
+	"rolltopcontainer",
+	"lockpick",
+	"chestbox",
+	"libraryhintpaper",
+	"crucifix",
+	"skeletonkey",
+	"plant",
+	"shears",
+	"cellar",
+	"cuttablevines",
+	"skulllock",
+	"wheel",
+	"starvial",
+	"starbottle"
 };
+local promptFindTargets = {
+	"stardust",
+	"fuse",
+	"keyobtain",
+	"lotus"
+};
+local espExactTargets = {
+	"rushnew",
+	"keyobtain",
+	"a60",
+	"a120",
+	"backdoorrush",
+	"livehintbook"
+};
+local otherCmds = {
+	{
+		"autodelfind",
+		"giggle"
+	},
+	{
+		"autodel",
+		"egg"
+	},
+	{
+		"autodel",
+		"snare"
+	},
+	{
+		"autodelfind",
+		"surge"
+	},
+	{
+		"autodel",
+		"sideroomdupe"
+	},
+	{
+		"autodel",
+		"sideroomspace"
+	},
+	{
+		"ipp"
+	}
+};
+local function safeCmdRun(args)
+	if typeof(cmdRun) ~= "function" then
+		return;
+	end;
+	pcall(function()
+		cmdRun(args);
+	end);
+end;
+local function ensurePrompt(target, useFind)
+	local interval = 0.01;
+	if NAjobs and typeof(NAjobs.start) == "function" then
+		local ok = pcall(function()
+			NAjobs.start("prompt", interval, target, useFind);
+		end);
+		if ok then
+			return;
+		end;
+	end;
+	safeCmdRun({
+		useFind and "afpfind" or "afp",
+		target
+	});
+end;
+local function ensureEsp(mode, term)
+	local t = (term or ""):lower();
+	local list = NAStuff and NAStuff.espNameLists and NAStuff.espNameLists[mode];
+	if list then
+		for _, v in ipairs(list) do
+			if v == t then
+				return;
+			end;
+		end;
+	end;
+	if NAmanage and typeof(NAmanage.EnableNameEsp) == "function" then
+		local ok = pcall(NAmanage.EnableNameEsp, mode, nil, term);
+		if ok then
+			return;
+		end;
+	end;
+	safeCmdRun({
+		mode == "partial" and "pespfind" or "pesp",
+		term
+	});
+end;
 local function lp()
 	return plrs.LocalPlayer;
 end;
@@ -547,10 +617,17 @@ local function hookLadder()
 	nd.ladMm = old;
 end;
 local function plugRun()
-	for _, c in ipairs(naCmds) do
-		pcall(function()
-			cmdRun(c);
-		end);
+	for _, t in ipairs(promptTargets) do
+		ensurePrompt(t, false);
+	end;
+	for _, t in ipairs(promptFindTargets) do
+		ensurePrompt(t, true);
+	end;
+	for _, term in ipairs(espExactTargets) do
+		ensureEsp("exact", term);
+	end;
+	for _, args in ipairs(otherCmds) do
+		safeCmdRun(args);
 	end;
 	killJam();
 	fixScreech();
