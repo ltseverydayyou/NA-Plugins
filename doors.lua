@@ -52,6 +52,7 @@ local naCmds = {
 	"pesp a60",
 	"pesp a120",
 	"autodel sideroomdupe",
+	"autodel sideroomspace",
 	"ipp"
 };
 local function lp()
