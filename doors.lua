@@ -51,6 +51,7 @@ local naCmds = {
 	"pesp keyobtain",
 	"pesp a60",
 	"pesp a120",
+	"pesp livehintbook",
 	"autodel sideroomdupe",
 	"autodel sideroomspace",
 	"ipp"
