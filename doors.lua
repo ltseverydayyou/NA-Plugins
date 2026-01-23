@@ -132,6 +132,14 @@ end;
 local function lp()
 	return plrs.LocalPlayer;
 end;
+local function gch()
+	local p = lp();
+	if not p then
+		return;
+	end;
+	local c = p.Character;
+	return c;
+end;
 local function pg()
 	local p = lp();
 	if not p then
@@ -192,7 +200,13 @@ local function startDoors()
 	if nd.roomConn then
 		return;
 	end;
+	nd.lastDoorRoom = nd.lastDoorRoom or nil;
 	nd.roomConn = rs.RenderStepped:Connect(function()
+		local c = gch();
+		local hrp = c and (c.PrimaryPart or c:FindFirstChild("HumanoidRootPart"));
+		if not hrp then
+			return;
+		end;
 		local gd = rsrv:FindFirstChild("GameData");
 		local lr = gd and gd:FindFirstChild("LatestRoom");
 		if not lr then
@@ -211,7 +225,16 @@ local function startDoors()
 			return;
 		end;
 		local ev = d:FindFirstChild("ClientOpen");
-		if ev then
+		if not ev then
+			return;
+		end;
+		local doorPart = d:FindFirstChild("DoorHitbox") or d:FindFirstChild("Door") or d:FindFirstChildWhichIsA("BasePart");
+		if not doorPart then
+			return;
+		end;
+		local dist = (hrp.Position - doorPart.Position).Magnitude;
+		if dist <= 50 and nd.lastDoorRoom ~= lr.Value then
+			nd.lastDoorRoom = lr.Value;
 			pcall(function()
 				ev:FireServer();
 			end);
@@ -268,14 +291,6 @@ local function setupChar(ch)
 	keepAttr(ch, "Invincibility", true);
 	keepAttr(ch, "CanSlide", true);
 	keepAttr(ch, "CanJump", true);
-end;
-local function gch()
-	local p = lp();
-	if not p then
-		return;
-	end;
-	local c = p.Character;
-	return c;
 end;
 local function drop()
 	local c = gch();
