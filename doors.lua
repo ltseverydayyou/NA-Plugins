@@ -233,7 +233,7 @@ local function startDoors()
 			return;
 		end;
 		local dist = (hrp.Position - doorPart.Position).Magnitude;
-		if dist <= 50 and nd.lastDoorRoom ~= lr.Value then
+		if dist <= 100 and nd.lastDoorRoom ~= lr.Value then
 			nd.lastDoorRoom = lr.Value;
 			pcall(function()
 				ev:FireServer();
