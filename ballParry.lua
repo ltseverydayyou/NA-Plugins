@@ -102,14 +102,31 @@ local function apConfigForGame()
 	return "Auto Parry: no preset for this game, using default visualizer config."
 end
 
+local function runAutoParry()
+	local AP_URL = "https://raw.githubusercontent.com/ltseverydayyou/uuuuuuu/refs/heads/main/AutoParry.lua"
+	local ok, res = pcall(function()
+		local src = game:HttpGet(AP_URL)
+		local fn = loadstring(src)
+		if typeof(fn) == "function" then
+			fn()
+		end
+	end)
+	if ok then
+		return "Auto Parry: script loaded."
+	else
+		return "Auto Parry: failed to load (" .. tostring(res) .. ")."
+	end
+end
+
 cmdPluginAdd = {
 	Aliases = { "apsetup", "autoparrysetup" },
 	ArgsHint = "",
-	Info = "Configure Auto Parry visualizer/controls for this game.",
+	Info = "Configure Auto Parry visualizer/controls for this game and run it.",
 	Function = function()
-		local msg = apConfigForGame()
+		local m1 = apConfigForGame()
+		local m2 = runAutoParry()
 		if DoNotif then
-			DoNotif(msg)
+			DoNotif(m1 .. "\n" .. m2)
 		end
 	end,
 	RequiresArguments = false
