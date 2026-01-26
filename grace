@@ -102,7 +102,7 @@ local function getDoor(r)
 	if not r then
 		return nil
 	end
-	local e = r:FindFirstChild("Entrance",true)
+	local e = r:FindFirstChild("Entrance")
 	if e and e:IsA("BasePart") then
 		return e
 	end
@@ -138,6 +138,7 @@ local function doDoorLoop()
 			local r = findRoom(cur + 2, rooms)
 			tgtDoor = getDoor(r)
 		end
+		rooms = workspace:FindFirstChild("Rooms") or rooms
 	end
 
 	local function step()
@@ -185,7 +186,48 @@ cmdPluginAdd = {
 	{
 		Aliases = {"gracegod","ggod"},
 		ArgsHint = "",
-		Info = "Grace god mode: block jumpscares, kill send remotes, auto doors",
+		Info = "h",
+		Function = function(arg)
+			local Players = game:GetService("Players")
+			local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+			local localPlayer = Players.LocalPlayer
+			local playerGui = localPlayer:WaitForChild("PlayerGui")
+
+			local blockedGuiNames = {
+				"smilegui",
+				"static",
+				"eyegui",
+				"goatport",
+				"memorygui",
+				"litanygui",
+				"epikduk",
+				"mimejumpscare",
+				"pulseui",
+			}
+
+			local blockedGuiSet = {}
+			for _, name in ipairs(blockedGuiNames) do
+				blockedGuiSet[name] = true
+			end
+
+			playerGui.ChildAdded:Connect(function(child)
+				local name = child.Name:lower()
+				if blockedGuiSet[name] then
+					child:Destroy()
+				end
+			end)
+
+			cmdRun("blockremote killclient")
+
+			return blockedGuiNames
+		end,
+		RequiresArguments = false
+	},
+	{
+		Aliases = {"gracefull","gfull"},
+		ArgsHint = "",
+		Info = "Grace full: UI block, send kill, auto doors",
 		Function = function(arg)
 			local u = doUiBlock()
 			local s = doSendKill()
@@ -220,7 +262,7 @@ cmdPluginAdd = {
 	{
 		Aliases = {"gracedoor","gdoor"},
 		ArgsHint = "",
-		Info = "Auto-TP to door and auto-open doors",
+		Info = "Auto-TP to CurrentRoom+1 door and auto-open doors",
 		Function = function(arg)
 			return doDoorLoop()
 		end,
