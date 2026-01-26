@@ -102,7 +102,7 @@ local function getDoor(r)
 	if not r then
 		return nil
 	end
-	local e = r:FindFirstChild("Entrance")
+	local e = r:FindFirstChild("Entrance",true)
 	if e and e:IsA("BasePart") then
 		return e
 	end
