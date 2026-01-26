@@ -86,12 +86,20 @@ local otherCmds = {
 		"candle"
 	},
 	{
+		"lws",
+		"21.1"
+	},
+	{
+		"strengthen",
+		"inf"
+	},
+	{
 		"ipp"
 	},
 	{
 		"psize",
 		"hidden",
-		"17"
+		"15"
 	}
 };
 local function safeCmdRun(args)
