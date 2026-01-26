@@ -82,7 +82,16 @@ local otherCmds = {
 		"sideroomspace"
 	},
 	{
+		"autodel",
+		"candle"
+	},
+	{
 		"ipp"
+	},
+	{
+		"psize",
+		"hidden",
+		"17"
 	}
 };
 local function safeCmdRun(args)
