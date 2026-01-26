@@ -172,6 +172,15 @@ local function doDoorLoop()
 	return "door loop started"
 end
 
+local function stopDoorLoop()
+	if doorConn then
+		doorConn:Disconnect()
+		doorConn = nil
+		return "door loop stopped"
+	end
+	return "door loop not running"
+end
+
 cmdPluginAdd = {
 	{
 		Aliases = {"gracegod","ggod"},
@@ -211,9 +220,18 @@ cmdPluginAdd = {
 	{
 		Aliases = {"gracedoor","gdoor"},
 		ArgsHint = "",
-		Info = "Auto-TP to CurrentRoom+1 door and auto-open doors",
+		Info = "Auto-TP to door and auto-open doors",
 		Function = function(arg)
 			return doDoorLoop()
+		end,
+		RequiresArguments = false
+	},
+	{
+		Aliases = {"gracedooroff","gdooroff"},
+		ArgsHint = "",
+		Info = "Stop auto door loop",
+		Function = function(arg)
+			return stopDoorLoop()
 		end,
 		RequiresArguments = false
 	}
