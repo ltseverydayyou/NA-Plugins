@@ -135,7 +135,7 @@ local function doDoorLoop()
 		end
 		if cur ~= lastRoom or not tgtDoor or not tgtDoor.Parent then
 			lastRoom = cur
-			local r = findRoom(cur + 2, rooms)
+			local r = findRoom(cur + 3, rooms)
 			tgtDoor = getDoor(r)
 		end
 		rooms = workspace:FindFirstChild("Rooms") or rooms
