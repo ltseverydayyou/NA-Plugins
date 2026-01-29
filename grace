@@ -14,6 +14,8 @@ end
 local uiConn
 local sendDone = false
 local doorConn
+local cpConn
+local pgConn
 
 local blkNames = {
 	"smilegui",
@@ -43,8 +45,8 @@ local function doUiBlock()
 		end
 	end
 	uiConn = pg.ChildAdded:Connect(function(child)
-		local n = child.Name:lower()
-		if set[n] then
+		local name = child.Name:lower()
+		if set[name] then
 			child:Destroy()
 		end
 	end)
@@ -113,19 +115,54 @@ local function doDoorLoop()
 	if doorConn or not lp then
 		return "door loop already running"
 	end
-	local rooms = workspace:WaitForChild("Rooms")
+
+	local rooms = workspace:FindFirstChild("Rooms") or workspace:WaitForChild("Rooms")
 	local pg = lp:WaitForChild("PlayerGui")
 	local cp = pg:FindFirstChild("ClickPrompts")
 
+	local function handleGui(gui)
+		if gui:IsA("BillboardGui") and gui:GetAttribute("MobileInput") == nil then
+			gui:SetAttribute("MobileInput", true)
+		end
+	end
+
+	if cp then
+		for _, gui in ipairs(cp:GetChildren()) do
+			handleGui(gui)
+		end
+		if cpConn then
+			cpConn:Disconnect()
+			cpConn = nil
+		end
+		cpConn = cp.ChildAdded:Connect(handleGui)
+	else
+		if pgConn then
+			pgConn:Disconnect()
+			pgConn = nil
+		end
+		pgConn = pg.ChildAdded:Connect(function(child)
+			if child.Name == "ClickPrompts" then
+				cp = child
+				if pgConn then
+					pgConn:Disconnect()
+					pgConn = nil
+				end
+				for _, gui in ipairs(cp:GetChildren()) do
+					handleGui(gui)
+				end
+				if cpConn then
+					cpConn:Disconnect()
+					cpConn = nil
+				end
+				cpConn = cp.ChildAdded:Connect(handleGui)
+			end
+		end)
+	end
+
 	local lastRoom = nil
 	local tgtDoor = nil
-
-	local function updCP()
-		if cp and cp.Parent then
-			return
-		end
-		cp = pg:FindFirstChild("ClickPrompts")
-	end
+	local lastTp = 0
+	local tpInterval = 1 / 30
 
 	local function updDoor()
 		local cur = workspace:GetAttribute("CurrentRoom")
@@ -135,10 +172,10 @@ local function doDoorLoop()
 		end
 		if cur ~= lastRoom or not tgtDoor or not tgtDoor.Parent then
 			lastRoom = cur
+			rooms = workspace:FindFirstChild("Rooms") or rooms
 			local r = findRoom(cur + 2, rooms)
 			tgtDoor = getDoor(r)
 		end
-		rooms = workspace:FindFirstChild("Rooms") or rooms
 	end
 
 	local function step()
@@ -150,25 +187,23 @@ local function doDoorLoop()
 			return
 		end
 		updDoor()
-		if tgtDoor then
+		if not tgtDoor then
+			return
+		end
+		local now = os.clock()
+		if now - lastTp < tpInterval then
+			return
+		end
+		lastTp = now
+		local offset = tgtDoor.Position - hrp.Position
+		if offset.Magnitude > 0.5 then
 			ch:PivotTo(tgtDoor.CFrame * CFrame.new(0, 0, -5))
 			hrp.AssemblyLinearVelocity = Vector3.new()
 			hrp.Velocity = Vector3.new()
 		end
-		updCP()
-		if not cp then
-			return
-		end
-		for _, gui in ipairs(cp:GetChildren()) do
-			if gui:IsA("BillboardGui") and gui:GetAttribute("MobileInput") == nil then
-				gui:SetAttribute("MobileInput", true)
-			end
-		end
 	end
 
-	doorConn = RunService.RenderStepped:Connect(function()
-		task.defer(step)
-	end)
+	doorConn = RunService.RenderStepped:Connect(step)
 
 	return "door loop started"
 end
@@ -177,9 +212,16 @@ local function stopDoorLoop()
 	if doorConn then
 		doorConn:Disconnect()
 		doorConn = nil
-		return "door loop stopped"
 	end
-	return "door loop not running"
+	if cpConn then
+		cpConn:Disconnect()
+		cpConn = nil
+	end
+	if pgConn then
+		pgConn:Disconnect()
+		pgConn = nil
+	end
+	return "door loop stopped"
 end
 
 cmdPluginAdd = {
