@@ -50,7 +50,6 @@ local function apConfigForGame()
 				name = "Ball"
 			}
 		};
-		cfg.remote = nil;
 		cfg.btn = {
 			safe(function()
 				return pg.MainGui.BottomUIs.ParryBtn;
@@ -59,11 +58,9 @@ local function apConfigForGame()
 		return "Auto Parry: preset applied for game 9297425523.";
 	elseif gid == 4777817887 then
 		cfg.path = {
-			workspace:FindFirstChild("Balls", true);
-			workspace:FindFirstChild("TrainingBalls", true);
+			workspace:FindFirstChild("Balls",true);
+			workspace:FindFirstChild("TrainingBalls",true);
 		};
-		cfg.remote = nil;
-		cfg.btn = nil;
 		return "Auto Parry: preset applied for game 4777817887.";
 	elseif gid == 5107841430 then
 		cfg.path = {
@@ -72,7 +69,6 @@ local function apConfigForGame()
 				name = "client"
 			}
 		};
-		cfg.remote = nil;
 		cfg.btn = {
 			safe(function()
 				return pg.MAIN.HUD.bottomButtons.block;
