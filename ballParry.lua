@@ -59,10 +59,8 @@ local function apConfigForGame()
 		return "Auto Parry: preset applied for game 9297425523.";
 	elseif gid == 4777817887 then
 		cfg.path = {
-			{
-				workspace:FindFirstChild("Balls", true),
-				workspace:FindFirstChild("TrainingBalls", true)
-			}
+			workspace:FindFirstChild("Balls", true);
+			workspace:FindFirstChild("TrainingBalls", true);
 		};
 		cfg.remote = nil;
 		cfg.btn = nil;
