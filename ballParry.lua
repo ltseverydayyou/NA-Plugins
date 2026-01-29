@@ -3,6 +3,9 @@ local function apConfigForGame()
 	local G = getgenv and getgenv() or _G;
 	G.visualizer = G.visualizer or {};
 	local cfg = G.visualizer;
+	cfg.path = nil;
+	cfg.remote = nil;
+	cfg.btn = nil;
 	local plrs = game:GetService("Players");
 	local lp = plrs.LocalPlayer;
 	local pg = lp and (lp:FindFirstChildOfClass("PlayerGui") or lp:FindFirstChild("PlayerGui"));
@@ -58,9 +61,17 @@ local function apConfigForGame()
 		return "Auto Parry: preset applied for game 9297425523.";
 	elseif gid == 4777817887 then
 		cfg.path = {
-			workspace:FindFirstChild("Balls",true);
-			workspace:FindFirstChild("TrainingBalls",true);
+			{
+				parent = workspace,
+				name = "Balls"
+			},
+			{
+				parent = workspace,
+				name = "TrainingBalls"
+			}
 		};
+		cfg.remote = nil;
+		cfg.btn = nil;
 		return "Auto Parry: preset applied for game 4777817887.";
 	elseif gid == 5107841430 then
 		cfg.path = {
