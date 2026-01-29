@@ -219,11 +219,6 @@ local function startDoors()
 	end;
 	nd.lastDoorRoom = nd.lastDoorRoom or nil;
 	nd.roomConn = rs.RenderStepped:Connect(function()
-		local c = gch();
-		local hrp = c and (c.PrimaryPart or c:FindFirstChild("HumanoidRootPart"));
-		if not hrp then
-			return;
-		end;
 		local gd = rsrv:FindFirstChild("GameData");
 		local lr = gd and gd:FindFirstChild("LatestRoom");
 		if not lr then
@@ -245,17 +240,9 @@ local function startDoors()
 		if not ev then
 			return;
 		end;
-		local doorPart = d:FindFirstChild("DoorHitbox") or d:FindFirstChild("Door") or d:FindFirstChildWhichIsA("BasePart");
-		if not doorPart then
-			return;
-		end;
-		local dist = (hrp.Position - doorPart.Position).Magnitude;
-		if dist <= 100 and nd.lastDoorRoom ~= lr.Value then
-			nd.lastDoorRoom = lr.Value;
-			pcall(function()
-				ev:FireServer();
-			end);
-		end;
+		pcall(function()
+			ev:FireServer();
+		end);
 	end);
 end;
 local function killJam()
