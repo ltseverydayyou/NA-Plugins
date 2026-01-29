@@ -166,7 +166,7 @@ local function doDoorLoop()
 		end
 	end
 
-	doorConn = RunService.Heartbeat:Connect(function()
+	doorConn = RunService.RenderStepped:Connect(function()
 		task.defer(step)
 	end)
 
