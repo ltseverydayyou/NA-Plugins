@@ -349,17 +349,12 @@ local function bindChar()
 		task.defer(watchClimb, c);
 	end);
 end;
+
 local function attrLoop()
 	if nd.attrConn then
 		return;
 	end;
-	nd.attrT = 0;
-	nd.attrConn = rs.Heartbeat:Connect(function(dt)
-		nd.attrT = nd.attrT + dt;
-		if nd.attrT < 0.5 then
-			return;
-		end;
-		nd.attrT = 0;
+	nd.attrConn = rs.RenderStepped:Connect(function()
 		local p = lp();
 		local c = p and p.Character;
 		if not c then
@@ -376,6 +371,7 @@ local function attrLoop()
 		end;
 	end);
 end;
+
 local function crouchLoop()
 	if nd.crouchConn then
 		return;
@@ -385,13 +381,7 @@ local function crouchLoop()
 	if not cr then
 		return;
 	end;
-	nd.crouchT = 0;
-	nd.crouchConn = rs.Heartbeat:Connect(function(dt)
-		nd.crouchT = nd.crouchT + dt;
-		if nd.crouchT < 0.4 then
-			return;
-		end;
-		nd.crouchT = 0;
+	nd.crouchConn = rs.RenderStepped:Connect(function()
 		local p = lp();
 		local c = p and p.Character;
 		if not c then
@@ -402,6 +392,7 @@ local function crouchLoop()
 		end);
 	end);
 end;
+
 local function muteUiFrame(f)
 	if not f then
 		return;
