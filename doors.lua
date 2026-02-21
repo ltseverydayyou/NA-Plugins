@@ -614,16 +614,23 @@ local function hookLadder()
 	if not rem then
 		return;
 	end;
-	nd.ladHook = true;
 	local old;
-	old = hm(game, "__namecall", function(self, ...)
-		local m = getnamecallmethod and (getnamecallmethod()):lower() or "";
-		if not checkcaller() and self == rem and m == "fireserver" then
-			drop();
+	local ok, hooked = pcall(function()
+		return hm(game, "__namecall", function(self, ...)
+			local raw = getnamecallmethod and getnamecallmethod() or nil;
+			local m = typeof(raw) == "string" and raw:lower() or "";
+			if not checkcaller() and self == rem and m == "fireserver" then
+				drop();
+				return old(self, ...);
+			end;
 			return old(self, ...);
-		end;
-		return old(self, ...);
+		end);
 	end);
+	if (not ok) or typeof(hooked) ~= "function" then
+		return;
+	end;
+	old = hooked;
+	nd.ladHook = true;
 	nd.ladMm = old;
 end;
 local function plugRun()
