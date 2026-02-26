@@ -53,7 +53,7 @@ local function doSendKill()
 	end;
 	sendDone = true;
 	task.defer(function()
-		for _, inst in ipairs(ReplicatedStorage:GetDescendants()) do
+		for _, inst in ipairs(ReplicatedStorage:QueryDescendants("Instance")) do
 			local n = inst.Name;
 			if typeof(n) == "string" and (n:lower()):find("send") then
 				pcall(function()

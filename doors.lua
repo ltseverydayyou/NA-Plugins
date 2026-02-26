@@ -403,7 +403,7 @@ local function muteUiFrame(f)
 	elseif f:IsA("ImageLabel") or f:IsA("ImageButton") then
 		f.ImageTransparency = 1;
 	end;
-	for _, d in ipairs(f:GetDescendants()) do
+	for _, d in ipairs(f:QueryDescendants("Instance")) do
 		if d:IsA("ImageLabel") or d:IsA("ImageButton") then
 			d.ImageTransparency = 1;
 			d.Visible = false;
@@ -586,7 +586,7 @@ local function setModsHooks()
 	if nd.modsConn then
 		nd.modsConn:Disconnect();
 	end;
-	for _, d in ipairs(g:GetDescendants()) do
+	for _, d in ipairs(g:QueryDescendants("Instance")) do
 		if isMainMods(d) then
 			task.defer(hookSpider);
 			task.defer(hookA90);
