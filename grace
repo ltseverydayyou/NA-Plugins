@@ -1,6 +1,7 @@
 local Players = game:GetService("Players");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
 local RunService = game:GetService("RunService");
+local SoundService = game:GetService("SoundService");
 local lp = Players.LocalPlayer;
 local ch = lp and (lp.Character or lp.CharacterAdded:Wait()) or nil;
 if lp then
@@ -13,6 +14,8 @@ local sendDone = false;
 local doorConn;
 local cpConn;
 local pgConn;
+local svConn;
+local svCleanupConn;
 local blkNames = {
 	"smilegui",
 	"static",
@@ -69,6 +72,84 @@ local function doSendKill()
 		end;
 	end);
 	return "send-kill queued";
+end;
+local function doSignedVolumeMute()
+	local nonDefault = SoundService:FindFirstChild("NonDefault") or SoundService:WaitForChild("NonDefault", 5);
+	if not nonDefault then
+		return "SignedVolume container missing";
+	end;
+	local signedVolume = nonDefault:FindFirstChild("SignedVolume") or nonDefault:WaitForChild("SignedVolume", 5);
+	if (not signedVolume) or (not signedVolume:IsA("NumberValue")) then
+		return "SignedVolume NumberValue missing";
+	end;
+	local function applyMute()
+		if signedVolume.Parent and signedVolume.Value ~= 0 then
+			pcall(function()
+				signedVolume.Value = 0;
+			end);
+		end;
+	end;
+	applyMute();
+	if svConn then
+		svConn:Disconnect();
+		svConn = nil;
+	end;
+	if svCleanupConn then
+		svCleanupConn:Disconnect();
+		svCleanupConn = nil;
+	end;
+	svConn = signedVolume:GetPropertyChangedSignal("Value"):Connect(applyMute);
+	svCleanupConn = signedVolume.AncestryChanged:Connect(function(_, parent)
+		if parent then
+			return;
+		end;
+		if svConn then
+			svConn:Disconnect();
+			svConn = nil;
+		end;
+		if svCleanupConn then
+			svCleanupConn:Disconnect();
+			svCleanupConn = nil;
+		end;
+	end);
+	return "SignedVolume locked to 0";
+end;
+local function doKillClientFallback()
+	local removed = 0;
+	for _, inst in ipairs(ReplicatedStorage:GetDescendants()) do
+		local name = inst.Name;
+		if typeof(name) == "string" and name:lower() == "killclient" then
+			local isRemote = false;
+			local ok = pcall(function()
+				isRemote = inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") or inst.ClassName == "UnreliableRemoteEvent";
+			end);
+			if ok and isRemote then
+				local destroyed = pcall(function()
+					inst:Destroy();
+				end);
+				if destroyed then
+					removed = removed + 1;
+				end;
+			end;
+		end;
+	end;
+	if removed > 0 then
+		return "killclient remote destroyed";
+	end;
+	return "killclient remote not found";
+end;
+local function doKillClientGuard()
+	local hasHookMeta = typeof(hookmetamethod) == "function";
+	local hasHookFunc = typeof(hookfunction) == "function";
+	if hasHookMeta and typeof(cmdRun) == "function" then
+		cmdRun("blockremote killclient");
+		return "killclient blocked via blockremote";
+	end;
+	local fallback = doKillClientFallback();
+	if hasHookFunc and (not hasHookMeta) then
+		return fallback .. " (hookfunction found, hookmetamethod missing)";
+	end;
+	return fallback;
 end;
 local function findRoom(idx, rooms)
 	if not idx or (not rooms) then
@@ -199,7 +280,7 @@ local function doDoorLoop()
 			hrp.Velocity = Vector3.new();
 		end;
 	end;
-	doorConn = RunService.RenderStepped:Connect(step);
+	doorConn = RunService.Heartbeat:Connect(step);
 	return "door loop started";
 end;
 local function stopDoorLoop()
@@ -226,33 +307,10 @@ cmdPluginAdd = {
 		ArgsHint = "",
 		Info = "h",
 		Function = function(arg)
-			local Players = game:GetService("Players");
-			local ReplicatedStorage = game:GetService("ReplicatedStorage");
-			local localPlayer = Players.LocalPlayer;
-			local playerGui = localPlayer:WaitForChild("PlayerGui");
-			local blockedGuiNames = {
-				"smilegui",
-				"static",
-				"eyegui",
-				"goatport",
-				"memorygui",
-				"litanygui",
-				"epikduk",
-				"mimejumpscare",
-				"pulseui"
-			};
-			local blockedGuiSet = {};
-			for _, name in ipairs(blockedGuiNames) do
-				blockedGuiSet[name] = true;
-			end;
-			playerGui.ChildAdded:Connect(function(child)
-				local name = child.Name:lower();
-				if blockedGuiSet[name] then
-					child:Destroy();
-				end;
-			end);
-			cmdRun("blockremote killclient");
-			return blockedGuiNames;
+			doUiBlock();
+			doSignedVolumeMute();
+			doKillClientGuard();
+			return blkNames;
 		end,
 		RequiresArguments = false
 	},
@@ -265,13 +323,16 @@ cmdPluginAdd = {
 		Info = "Grace full: UI block, send kill, auto doors",
 		Function = function(arg)
 			local u = doUiBlock();
+			local v = doSignedVolumeMute();
 			local s = doSendKill();
 			local d = doDoorLoop();
-			cmdRun("blockremote killclient");
+			local k = doKillClientGuard();
 			return {
 				ui = u,
+				volume = v,
 				send = s,
-				door = d
+				door = d,
+				killclient = k
 			};
 		end,
 		RequiresArguments = false
