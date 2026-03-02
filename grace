@@ -22,7 +22,10 @@ local blkNames = {
 	"litanygui",
 	"epikduk",
 	"mimejumpscare",
-	"pulseui"
+	"pulseui",
+	"jumpscare",
+	"direction",
+	"cruel",
 };
 local function doUiBlock()
 	if not lp or uiConn then
