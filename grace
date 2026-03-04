@@ -37,6 +37,7 @@ local blkNames = {
 	"stemui",
 	"indic",
 	"evilduk",
+	"mayhemcardselection",
 };
 local blkSet = {};
 for _, n in ipairs(blkNames) do
