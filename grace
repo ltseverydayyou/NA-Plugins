@@ -16,6 +16,9 @@ local cpConn;
 local pgConn;
 local svConn;
 local svCleanupConn;
+local joeyBackpackConn;
+local joeyCharacterConn;
+local joeyCharacterAddedConn;
 local blkNames = {
 	"smilegui",
 	"static",
@@ -113,6 +116,59 @@ local function doSignedVolumeMute()
 		end;
 	end);
 	return "SignedVolume locked to 0";
+end;
+local function clearJoey(inst)
+	local name = inst and inst.Name;
+	if typeof(name) ~= "string" or name:lower() ~= "joey" then
+		return false;
+	end;
+	local isTool = false;
+	local ok = pcall(function()
+		isTool = inst:IsA("Tool");
+	end);
+	if (not ok) or (not isTool) then
+		return false;
+	end;
+	pcall(function()
+		inst:Destroy();
+	end);
+	return true;
+end;
+local function bindJoeyContainer(container)
+	if not container then
+		return nil;
+	end;
+	for _, child in ipairs(container:GetChildren()) do
+		clearJoey(child);
+	end;
+	return container.ChildAdded:Connect(function(child)
+		clearJoey(child);
+	end);
+end;
+local function doJoeyBlock()
+	if not lp then
+		return "LocalPlayer missing";
+	end;
+	local backpack = lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack");
+	if joeyBackpackConn then
+		joeyBackpackConn:Disconnect();
+		joeyBackpackConn = nil;
+	end;
+	joeyBackpackConn = bindJoeyContainer(backpack);
+	local function hookCharacter(char)
+		if joeyCharacterConn then
+			joeyCharacterConn:Disconnect();
+			joeyCharacterConn = nil;
+		end;
+		joeyCharacterConn = bindJoeyContainer(char);
+	end;
+	hookCharacter(ch or lp.Character);
+	if joeyCharacterAddedConn then
+		joeyCharacterAddedConn:Disconnect();
+		joeyCharacterAddedConn = nil;
+	end;
+	joeyCharacterAddedConn = lp.CharacterAdded:Connect(hookCharacter);
+	return "Joey blocker running";
 end;
 local function doKillClientFallback()
 	local removed = 0;
@@ -309,6 +365,7 @@ cmdPluginAdd = {
 		Function = function(arg)
 			doUiBlock();
 			doSignedVolumeMute();
+			doJoeyBlock();
 			doKillClientGuard();
 			return blkNames;
 		end,
@@ -324,12 +381,14 @@ cmdPluginAdd = {
 		Function = function(arg)
 			local u = doUiBlock();
 			local v = doSignedVolumeMute();
+			local j = doJoeyBlock();
 			local s = doSendKill();
 			local d = doDoorLoop();
 			local k = doKillClientGuard();
 			return {
 				ui = u,
 				volume = v,
+				joey = j,
 				send = s,
 				door = d,
 				killclient = k
@@ -345,6 +404,18 @@ cmdPluginAdd = {
 		Info = "Block Grace scare GUIs",
 		Function = function(arg)
 			return doUiBlock();
+		end,
+		RequiresArguments = false
+	},
+	{
+		Aliases = {
+			"gracejoey",
+			"gjoey"
+		},
+		ArgsHint = "",
+		Info = "Delete any Tool named Joey from Backpack or Character",
+		Function = function(arg)
+			return doJoeyBlock();
 		end,
 		RequiresArguments = false
 	},
