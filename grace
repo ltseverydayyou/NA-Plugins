@@ -14,8 +14,10 @@ local sendDone = false;
 local doorConn;
 local cpConn;
 local pgConn;
+local roomConn;
 local svConn;
 local svCleanupConn;
+local svValueConns = {};
 local joeyBackpackConn;
 local joeyCharacterConn;
 local joeyCharacterAddedConn;
@@ -36,24 +38,45 @@ local blkNames = {
 	"indic",
 	"evilduk",
 };
+local blkSet = {};
+for _, n in ipairs(blkNames) do
+	blkSet[n] = true;
+end;
+local zeroVector = Vector3.new();
+local doorOffset = CFrame.new(0, 0, (-5));
+local function disconnectSignal(conn)
+	if conn then
+		conn:Disconnect();
+	end;
+	return nil;
+end;
+local function disconnectSignedVolume(inst)
+	local conn = svValueConns[inst];
+	if conn then
+		conn:Disconnect();
+		svValueConns[inst] = nil;
+	end;
+end;
+local function clearSignedVolumeHooks()
+	for inst, conn in pairs(svValueConns) do
+		conn:Disconnect();
+		svValueConns[inst] = nil;
+	end;
+end;
 local function doUiBlock()
 	if not lp or uiConn then
 		return blkNames;
 	end;
 	local pg = lp:WaitForChild("PlayerGui");
-	local set = {};
-	for _, n in ipairs(blkNames) do
-		set[n] = true;
-	end;
 	for _, c in ipairs(pg:GetChildren()) do
 		local n = c.Name:lower();
-		if set[n] then
+		if blkSet[n] then
 			c:Destroy();
 		end;
 	end;
 	uiConn = pg.ChildAdded:Connect(function(child)
 		local name = child.Name:lower();
-		if set[name] then
+		if blkSet[name] then
 			child:Destroy();
 		end;
 	end);
@@ -77,47 +100,54 @@ local function doSendKill()
 	return "send-kill queued";
 end;
 local function doSignedVolumeMute()
-	local nonDefault = SoundService:FindFirstChild("NonDefault") or SoundService:WaitForChild("NonDefault", 5);
-	if not nonDefault then
-		return "SignedVolume container missing";
-	end;
-	local signedVolume = nonDefault:FindFirstChild("SignedVolume") or nonDefault:WaitForChild("SignedVolume", 5);
-	if (not signedVolume) or (not signedVolume:IsA("NumberValue")) then
-		return "SignedVolume NumberValue missing";
-	end;
-	local function applyMute()
-		if signedVolume.Parent and signedVolume.Value ~= 0 then
-			pcall(function()
-				signedVolume.Value = 0;
-			end);
-		end;
-	end;
-	applyMute();
-	if svConn then
-		svConn:Disconnect();
-		svConn = nil;
-	end;
-	if svCleanupConn then
-		svCleanupConn:Disconnect();
-		svCleanupConn = nil;
-	end;
-	svConn = signedVolume:GetPropertyChangedSignal("Value"):Connect(applyMute);
-	svCleanupConn = signedVolume.AncestryChanged:Connect(function(_, parent)
-		if parent then
+	clearSignedVolumeHooks();
+	svConn = disconnectSignal(svConn);
+	svCleanupConn = disconnectSignal(svCleanupConn);
+
+	local found = 0;
+	local function lockSignedVolume(inst)
+		if (not inst) or inst.Name ~= "SignedVolume" or svValueConns[inst] then
 			return;
 		end;
-		if svConn then
-			svConn:Disconnect();
-			svConn = nil;
+		local isValue = false;
+		local ok = pcall(function()
+			isValue = inst:IsA("ValueBase");
+		end);
+		if (not ok) or (not isValue) then
+			return;
 		end;
-		if svCleanupConn then
-			svCleanupConn:Disconnect();
-			svCleanupConn = nil;
+		local function applyMute()
+			if not inst.Parent then
+				disconnectSignedVolume(inst);
+				return;
+			end;
+			pcall(function()
+				if inst.Value ~= 0 then
+					inst.Value = 0;
+				end;
+			end);
 		end;
+		found = found + 1;
+		applyMute();
+		svValueConns[inst] = inst:GetPropertyChangedSignal("Value"):Connect(applyMute);
+	end;
+
+	for _, inst in ipairs(SoundService:GetDescendants()) do
+		lockSignedVolume(inst);
+	end;
+
+	svConn = SoundService.DescendantAdded:Connect(function(inst)
+		lockSignedVolume(inst);
 	end);
-	return "SignedVolume locked to 0";
+	svCleanupConn = SoundService.DescendantRemoving:Connect(function(inst)
+		disconnectSignedVolume(inst);
+	end);
+	if found > 0 then
+		return "SignedVolume values locked to 0";
+	end;
+	return "Watching SoundService for SignedVolume values";
 end;
-local function clearJoey(inst)
+local function isJoeyTool(inst)
 	local name = inst and inst.Name;
 	if typeof(name) ~= "string" or name:lower() ~= "joey" then
 		return false;
@@ -126,7 +156,10 @@ local function clearJoey(inst)
 	local ok = pcall(function()
 		isTool = inst:IsA("Tool");
 	end);
-	if (not ok) or (not isTool) then
+	return ok and isTool;
+end;
+local function clearJoey(inst)
+	if not isJoeyTool(inst) then
 		return false;
 	end;
 	pcall(function()
@@ -142,7 +175,12 @@ local function bindJoeyContainer(container)
 		clearJoey(child);
 	end;
 	return container.ChildAdded:Connect(function(child)
-		clearJoey(child);
+		if not isJoeyTool(child) then
+			return;
+		end;
+		task.delay(1, function()
+			clearJoey(child);
+		end);
 	end);
 end;
 local function doJoeyBlock()
@@ -251,77 +289,71 @@ local function doDoorLoop()
 	end;
 	local rooms = workspace:FindFirstChild("Rooms") or workspace:WaitForChild("Rooms");
 	local pg = lp:WaitForChild("PlayerGui");
-	local cp = pg:FindFirstChild("ClickPrompts");
-	local function handleGui(gui)
-		task.defer(function()
-			if gui:IsA("BillboardGui") and gui:GetAttribute("MobileInput") == nil then
-				gui:SetAttribute("MobileInput", true);
-			end;
-		end);
-	end;
-	if cp then
-		for _, gui in ipairs(cp:GetChildren()) do
-			task.defer(function()
-				handleGui(gui);
-			end);
-		end;
-		if cpConn then
-			cpConn:Disconnect();
-			cpConn = nil;
-		end;
-		cpConn = cp.ChildAdded:Connect(handleGui);
-	else
-		if pgConn then
-			pgConn:Disconnect();
-			pgConn = nil;
-		end;
-		pgConn = pg.ChildAdded:Connect(function(child)
-			task.defer(function()
-				if child.Name == "ClickPrompts" then
-					cp = child;
-					if pgConn then
-						pgConn:Disconnect();
-						pgConn = nil;
-					end;
-					for _, gui in ipairs(cp:GetChildren()) do
-						handleGui(gui);
-					end;
-					if cpConn then
-						cpConn:Disconnect();
-						cpConn = nil;
-					end;
-					cpConn = cp.ChildAdded:Connect(handleGui);
-				end;
-			end);
-		end);
-	end;
+	local cp;
+	local currentRoom = workspace:GetAttribute("CurrentRoom");
 	local lastRoom = nil;
 	local tgtDoor = nil;
 	local lastTp = 0;
+	local lastChar = nil;
+	local hrp = nil;
 	local tpInterval = 1 / 30;
+	local function handleGui(gui)
+		if gui and gui:IsA("BillboardGui") and gui:GetAttribute("MobileInput") == nil then
+			gui:SetAttribute("MobileInput", true);
+		end;
+	end;
+	local function bindClickPrompts(container)
+		cp = container;
+		cpConn = disconnectSignal(cpConn);
+		if not cp then
+			return;
+		end;
+		for _, gui in ipairs(cp:GetChildren()) do
+			handleGui(gui);
+		end;
+		cpConn = cp.ChildAdded:Connect(handleGui);
+	end;
+	pgConn = disconnectSignal(pgConn);
+	pgConn = pg.ChildAdded:Connect(function(child)
+		if child.Name == "ClickPrompts" then
+			bindClickPrompts(child);
+		end;
+	end);
+	bindClickPrompts(pg:FindFirstChild("ClickPrompts"));
 	local function updDoor()
-		local cur = workspace:GetAttribute("CurrentRoom");
-		if typeof(cur) ~= "number" then
+		if typeof(currentRoom) ~= "number" then
+			lastRoom = nil;
 			tgtDoor = nil;
 			return;
 		end;
-		if cur ~= lastRoom or (not tgtDoor) or (not tgtDoor.Parent) then
-			lastRoom = cur;
-			rooms = workspace:FindFirstChild("Rooms") or rooms;
-			local r = findRoom(cur + 2, rooms);
-			tgtDoor = getDoor(r);
+		if currentRoom == lastRoom and tgtDoor and tgtDoor.Parent then
+			return;
 		end;
+		lastRoom = currentRoom;
+		rooms = workspace:FindFirstChild("Rooms") or rooms;
+		local r = findRoom(currentRoom + 2, rooms);
+		tgtDoor = getDoor(r);
 	end;
-	local function step()
-		if not ch then
-			return;
-		end;
-		local hrp = ch:FindFirstChild("HumanoidRootPart");
-		if not hrp then
-			return;
-		end;
+	roomConn = disconnectSignal(roomConn);
+	roomConn = workspace:GetAttributeChangedSignal("CurrentRoom"):Connect(function()
+		currentRoom = workspace:GetAttribute("CurrentRoom");
 		updDoor();
-		if not tgtDoor then
+	end);
+	updDoor();
+	local function step()
+		if ch ~= lastChar then
+			lastChar = ch;
+			hrp = lastChar and lastChar:FindFirstChild("HumanoidRootPart") or nil;
+		elseif (not hrp) or (not hrp.Parent) then
+			hrp = lastChar and lastChar:FindFirstChild("HumanoidRootPart") or nil;
+		end;
+		if (not lastChar) or (not hrp) then
+			return;
+		end;
+		if (not tgtDoor) or (not tgtDoor.Parent) then
+			updDoor();
+		end;
+		if (not tgtDoor) or (not tgtDoor.Parent) then
 			return;
 		end;
 		local now = os.clock();
@@ -329,29 +361,25 @@ local function doDoorLoop()
 			return;
 		end;
 		lastTp = now;
-		local offset = tgtDoor.Position - hrp.Position;
-		if offset.Magnitude > 0.5 then
-			ch:PivotTo(tgtDoor.CFrame * CFrame.new(0, 0, (-5)));
-			hrp.AssemblyLinearVelocity = Vector3.new();
-			hrp.Velocity = Vector3.new();
+		local doorPos = tgtDoor.Position;
+		local hrpPos = hrp.Position;
+		local dx = doorPos.X - hrpPos.X;
+		local dy = doorPos.Y - hrpPos.Y;
+		local dz = doorPos.Z - hrpPos.Z;
+		if ((dx * dx) + (dy * dy) + (dz * dz)) > 0.25 then
+			lastChar:PivotTo(tgtDoor.CFrame * doorOffset);
+			hrp.AssemblyLinearVelocity = zeroVector;
+			hrp.Velocity = zeroVector;
 		end;
 	end;
 	doorConn = RunService.Heartbeat:Connect(step);
 	return "door loop started";
 end;
 local function stopDoorLoop()
-	if doorConn then
-		doorConn:Disconnect();
-		doorConn = nil;
-	end;
-	if cpConn then
-		cpConn:Disconnect();
-		cpConn = nil;
-	end;
-	if pgConn then
-		pgConn:Disconnect();
-		pgConn = nil;
-	end;
+	doorConn = disconnectSignal(doorConn);
+	cpConn = disconnectSignal(cpConn);
+	pgConn = disconnectSignal(pgConn);
+	roomConn = disconnectSignal(roomConn);
 	return "door loop stopped";
 end;
 cmdPluginAdd = {

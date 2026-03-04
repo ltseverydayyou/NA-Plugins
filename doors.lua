@@ -12,6 +12,13 @@ local rsrv = game:GetService("ReplicatedStorage");
 local hf = hookfunction;
 local hm = hookmetamethod;
 local hasHook = typeof(hf) == "function";
+local zeroVector = Vector3.new();
+local function disconnect(conn)
+	if conn then
+		conn:Disconnect();
+	end;
+	return nil;
+end;
 local promptTargets = {
 	"goldpile",
 	"lock",
@@ -217,33 +224,48 @@ local function startDoors()
 	if nd.roomConn then
 		return;
 	end;
-	nd.lastDoorRoom = nd.lastDoorRoom or nil;
-	nd.roomConn = rs.RenderStepped:Connect(function()
-		local gd = rsrv:FindFirstChild("GameData");
-		local lr = gd and gd:FindFirstChild("LatestRoom");
-		if not lr then
-			return;
+	local gd = rsrv:FindFirstChild("GameData") or rsrv:WaitForChild("GameData", 5);
+	local lr = gd and (gd:FindFirstChild("LatestRoom") or gd:WaitForChild("LatestRoom", 5));
+	local cr = workspace:FindFirstChild("CurrentRooms") or workspace:WaitForChild("CurrentRooms", 5);
+	if (not lr) or (not cr) then
+		return;
+	end;
+	local function tryOpenCurrentDoor()
+		local roomName = tostring(lr.Value);
+		if roomName ~= nd.lastDoorRoom then
+			nd.lastDoorRoom = roomName;
+			nd.lastDoorEvent = nil;
+			nd.roomTargetConn = disconnect(nd.roomTargetConn);
 		end;
-		local cr = workspace:FindFirstChild("CurrentRooms");
-		if not cr then
-			return;
-		end;
-		local r = cr:FindFirstChild(tostring(lr.Value));
+		local r = cr:FindFirstChild(roomName);
 		if not r then
 			return;
+		end;
+		if not nd.roomTargetConn then
+			nd.roomTargetConn = r.DescendantAdded:Connect(function()
+				tryOpenCurrentDoor();
+			end);
 		end;
 		local d = r:FindFirstChild("Door");
 		if not d then
 			return;
 		end;
 		local ev = d:FindFirstChild("ClientOpen");
-		if not ev then
+		if (not ev) or ev == nd.lastDoorEvent then
 			return;
 		end;
+		nd.lastDoorEvent = ev;
 		pcall(function()
 			ev:FireServer();
 		end);
+	end;
+	nd.roomConn = lr:GetPropertyChangedSignal("Value"):Connect(tryOpenCurrentDoor);
+	nd.roomAddedConn = cr.ChildAdded:Connect(function(child)
+		if child.Name == tostring(lr.Value) then
+			tryOpenCurrentDoor();
+		end;
 	end);
+	tryOpenCurrentDoor();
 end;
 local function killJam()
 	local main = ss:FindFirstChild("Main");
@@ -282,19 +304,31 @@ local function keepAttr(ch, k, v)
 		return;
 	end;
 	ch:SetAttribute(k, v);
-	(ch:GetAttributeChangedSignal(k)):Connect(function()
+	return (ch:GetAttributeChangedSignal(k)):Connect(function()
 		if ch:GetAttribute(k) ~= v then
 			ch:SetAttribute(k, v);
 		end;
 	end);
 end;
+local function clearCharHooks()
+	nd.climbAttrConn = disconnect(nd.climbAttrConn);
+	if nd.attrKeepConns then
+		for i = 1, #nd.attrKeepConns do
+			nd.attrKeepConns[i] = disconnect(nd.attrKeepConns[i]);
+		end;
+	end;
+	nd.attrKeepConns = nil;
+	nd.boundChar = nil;
+end;
 local function setupChar(ch)
 	if not ch then
 		return;
 	end;
-	keepAttr(ch, "Invincibility", true);
-	keepAttr(ch, "CanSlide", true);
-	keepAttr(ch, "CanJump", true);
+	nd.attrKeepConns = {
+		keepAttr(ch, "Invincibility", true),
+		keepAttr(ch, "CanSlide", true),
+		keepAttr(ch, "CanJump", true)
+	};
 end;
 local function drop()
 	local c = gch();
@@ -306,7 +340,7 @@ local function drop()
 	c:SetAttribute("Climbing", false);
 	if pp then
 		pp.Anchored = false;
-		pp.Velocity = Vector3.new();
+		pp.Velocity = zeroVector;
 		pp.CFrame = pp.CFrame * CFrame.new(0, 0, (-3));
 	end;
 	if hum then
@@ -324,12 +358,21 @@ local function watchClimb(c)
 	if not c then
 		return;
 	end;
-	(c:GetAttributeChangedSignal("Climbing")):Connect(function()
+	return (c:GetAttributeChangedSignal("Climbing")):Connect(function()
 		local v = c:GetAttribute("Climbing");
 		if v then
-			task.defer(drop);
+			drop();
 		end;
 	end);
+end;
+local function applyCharHooks(c)
+	if (not c) or nd.boundChar == c then
+		return;
+	end;
+	clearCharHooks();
+	nd.boundChar = c;
+	setupChar(c);
+	nd.climbAttrConn = watchClimb(c);
 end;
 local function bindChar()
 	if nd.charBound then
@@ -341,12 +384,15 @@ local function bindChar()
 		return;
 	end;
 	if p.Character then
-		task.defer(setupChar, p.Character);
-		task.defer(watchClimb, p.Character);
+		applyCharHooks(p.Character);
 	end;
-	nd.charConn = p.CharacterAdded:Connect(function(c)
-		task.defer(setupChar, c);
-		task.defer(watchClimb, c);
+	nd.charConn = disconnect(nd.charConn);
+	nd.charRemovingConn = disconnect(nd.charRemovingConn);
+	nd.charConn = p.CharacterAdded:Connect(applyCharHooks);
+	nd.charRemovingConn = p.CharacterRemoving:Connect(function(c)
+		if c == nd.boundChar then
+			clearCharHooks();
+		end;
 	end);
 end;
 
@@ -354,22 +400,8 @@ local function attrLoop()
 	if nd.attrConn then
 		return;
 	end;
-	nd.attrConn = rs.RenderStepped:Connect(function()
-		local p = lp();
-		local c = p and p.Character;
-		if not c then
-			return;
-		end;
-		if c:GetAttribute("Invincibility") ~= true then
-			c:SetAttribute("Invincibility", true);
-		end;
-		if c:GetAttribute("CanSlide") ~= true then
-			c:SetAttribute("CanSlide", true);
-		end;
-		if c:GetAttribute("CanJump") ~= true then
-			c:SetAttribute("CanJump", true);
-		end;
-	end);
+	nd.attrConn = true;
+	applyCharHooks(gch());
 end;
 
 local function crouchLoop()
@@ -381,7 +413,14 @@ local function crouchLoop()
 	if not cr then
 		return;
 	end;
-	nd.crouchConn = rs.RenderStepped:Connect(function()
+	local lastFire = 0;
+	local interval = 0.05;
+	nd.crouchConn = rs.Heartbeat:Connect(function()
+		local now = os.clock();
+		if now - lastFire < interval then
+			return;
+		end;
+		lastFire = now;
 		local p = lp();
 		local c = p and p.Character;
 		if not c then
@@ -468,17 +507,20 @@ local function hookSpider()
 		spiderUiMute();
 		return;
 	end;
+	local function applySpiderMute()
+		spiderUiMute();
+	end;
 	if hasHook then
 		nd.spidHook = true;
 		local old;
 		old = hf(fn, function(...)
-			spiderUiMute();
+			applySpiderMute();
 			return;
 		end);
 		nd.spidOld = old;
 	else
 		nd.spidHook = true;
-		spiderUiMute();
+		applySpiderMute();
 	end;
 end;
 local function hookCam()
@@ -510,6 +552,24 @@ local function hookCam()
 	else
 		nd.camHook = true;
 	end;
+end;
+local function ensureA90Listener()
+	if nd.a90Evt then
+		return;
+	end;
+	local remf = rsrv:FindFirstChild("RemotesFolder");
+	local rem = remf and remf:FindFirstChild("A90");
+	if not rem then
+		return;
+	end;
+	nd.a90Evt = rem.OnClientEvent:Connect(function(...)
+		local p = lp();
+		local c = p and p.Character;
+		if c then
+			c:SetAttribute("Invincibility", true);
+		end;
+		a90UiMute();
+	end);
 end;
 local function hookA90()
 	if nd.a90Hook then
@@ -558,6 +618,11 @@ local function hookA90()
 		end;
 	end;
 end;
+local function applyModsHooks()
+	hookSpider();
+	hookA90();
+	hookCam();
+end;
 local function setModsHooks()
 	local p = lp();
 	if not p then
@@ -568,14 +633,10 @@ local function setModsHooks()
 		if not nd.pgConn then
 			nd.pgConn = p.ChildAdded:Connect(function(ch)
 				if ch:IsA("PlayerGui") then
-					if nd.modsConn then
-						nd.modsConn:Disconnect();
-					end;
+					nd.modsConn = disconnect(nd.modsConn);
 					nd.modsConn = ch.DescendantAdded:Connect(function(inst)
 						if isMainMods(inst) then
-							task.defer(hookSpider);
-							task.defer(hookA90);
-							task.defer(hookCam);
+							applyModsHooks();
 						end;
 					end);
 				end;
@@ -583,22 +644,16 @@ local function setModsHooks()
 		end;
 		return;
 	end;
-	if nd.modsConn then
-		nd.modsConn:Disconnect();
-	end;
+	nd.modsConn = disconnect(nd.modsConn);
 	for _, d in ipairs(g:QueryDescendants("Instance")) do
 		if isMainMods(d) then
-			task.defer(hookSpider);
-			task.defer(hookA90);
-			task.defer(hookCam);
+			applyModsHooks();
 			break;
 		end;
 	end;
 	nd.modsConn = g.DescendantAdded:Connect(function(inst)
 		if isMainMods(inst) then
-			task.defer(hookSpider);
-			task.defer(hookA90);
-			task.defer(hookCam);
+			applyModsHooks();
 		end;
 	end);
 end;
@@ -655,17 +710,8 @@ local function plugRun()
 	crouchLoop();
 	a90UiMute();
 	hookLadder();
-	local remf = rsrv:FindFirstChild("RemotesFolder");
-	local a90Rem = remf and remf:FindFirstChild("A90");
-	if a90Rem and (not nd.a90Attr) then
-		nd.a90Attr = a90Rem.OnClientEvent:Connect(function(...)
-			local p = lp();
-			local c = p and p.Character;
-			if c then
-				c:SetAttribute("Invincibility", true);
-			end;
-			a90UiMute();
-		end);
+	if not nd.a90Hook then
+		ensureA90Listener();
 	end;
 end;
 cmdPluginAdd = {
