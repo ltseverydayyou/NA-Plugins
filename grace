@@ -55,7 +55,7 @@ for _, n in ipairs(wsBlkNames) do
 	wsBlkSet[n] = true;
 end;
 local zeroVector = Vector3.new();
-local doorOffset = CFrame.new(0, 0, (-5));
+local doorOffset = CFrame.new(0, 0, -5);
 local function disconnectSignal(conn)
 	if conn then
 		conn:Disconnect();
@@ -136,7 +136,6 @@ local function doSignedVolumeMute()
 	clearSignedVolumeHooks();
 	svConn = disconnectSignal(svConn);
 	svCleanupConn = disconnectSignal(svCleanupConn);
-
 	local found = 0;
 	local function lockSignedVolume(inst)
 		if (not inst) or inst.Name ~= "SignedVolume" or svValueConns[inst] then
@@ -164,11 +163,9 @@ local function doSignedVolumeMute()
 		applyMute();
 		svValueConns[inst] = inst:GetPropertyChangedSignal("Value"):Connect(applyMute);
 	end;
-
 	for _, inst in ipairs(SoundService:GetDescendants()) do
 		lockSignedVolume(inst);
 	end;
-
 	svConn = SoundService.DescendantAdded:Connect(function(inst)
 		lockSignedVolume(inst);
 	end);
@@ -430,22 +427,18 @@ local function doGlobby()
 	local args = {
 		{
 			_m = 1,
-			a = 1,
+			a = 2,
 			c = 1,
 			m = {
 				ms = {
-					CH = true,
+					DE = true,
 					EQ = true,
-					FE = true,
-					FL = true,
-					FO = true,
 					IQ = true,
 					IU = true,
 					IW = true,
 					IY = true,
 					IqB = 3,
 					IqS = true,
-					MIM = true,
 					OT = true,
 					OY = 3,
 					Oi = true,
@@ -467,9 +460,7 @@ local function doGlobby()
 					UQ = true,
 					WE = true,
 					WO = true,
-					WY = true,
 					YT = 3,
-					YU = true,
 					Yr = true,
 					eQ = 5,
 					er = true,
@@ -477,7 +468,6 @@ local function doGlobby()
 					gD = 4,
 					ie = true,
 					op = true,
-					ou = true,
 					pQ = true,
 					pY = 2,
 					qQ = true,
@@ -501,12 +491,12 @@ local function doGlobby()
 					yQ = 3,
 					yw = true
 				},
-				v = false,
-				vav = false
+				v = true,
+				vav = true
 			},
 			p = 2,
 			s = 3
-		},
+		}
 	};
 	local okFire, err = pcall(function()
 		soloRun:FireServer(unpack(args));
