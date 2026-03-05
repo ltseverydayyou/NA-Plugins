@@ -427,7 +427,7 @@ local function doGlobby()
 	local args = {
 		{
 			_m = 1,
-			a = 2,
+			a = 1,
 			c = 1,
 			m = {
 				ms = {
@@ -491,8 +491,8 @@ local function doGlobby()
 					yQ = 3,
 					yw = true
 				},
-				v = true,
-				vav = true
+				v = false,
+				vav = false
 			},
 			p = 2,
 			s = 3
