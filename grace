@@ -383,6 +383,107 @@ local function stopDoorLoop()
 	roomConn = disconnectSignal(roomConn);
 	return "door loop stopped";
 end;
+local function doGlobby()
+	local soloRun = ReplicatedStorage:FindFirstChild("SoloRun");
+	if not soloRun then
+		return "SoloRun remote not found";
+	end;
+	local isRemote = false;
+	local okType = pcall(function()
+		isRemote = soloRun:IsA("RemoteEvent");
+	end);
+	if (not okType) or (not isRemote) then
+		return "SoloRun is not a RemoteEvent";
+	end;
+	local args = {
+		{
+			_m = 1,
+			a = 1,
+			c = 1,
+			m = {
+				ms = {
+					CH = true,
+					EQ = true,
+					FE = true,
+					FL = true,
+					FO = true,
+					IQ = true,
+					IU = true,
+					IW = true,
+					IY = true,
+					IqB = 3,
+					IqS = true,
+					MIM = true,
+					OT = true,
+					OY = 3,
+					Oi = true,
+					PP = 3,
+					PY = true,
+					Pi = 99,
+					Pw = true,
+					QI = true,
+					QO = true,
+					QY = true,
+					Qt = true,
+					RQ = 4,
+					Ss = true,
+					Ss1 = true,
+					Ss2 = true,
+					TY = true,
+					Ti = true,
+					Tw = true,
+					UQ = true,
+					WE = true,
+					WO = true,
+					WY = true,
+					YT = 3,
+					YU = true,
+					Yr = true,
+					eQ = 5,
+					er = true,
+					fP = true,
+					gD = 4,
+					ie = true,
+					op = true,
+					ou = true,
+					pQ = true,
+					pY = 2,
+					qQ = true,
+					qT = true,
+					qi = true,
+					qo = 10,
+					rw = 2,
+					sF = true,
+					tT = true,
+					tW = true,
+					ti = true,
+					uR = true,
+					uW = true,
+					wE = 5,
+					wQ = true,
+					wW = true,
+					wi = true,
+					wp = true,
+					wr = true,
+					yO = true,
+					yQ = 3,
+					yw = true
+				},
+				v = false,
+				vav = false
+			},
+			p = 2,
+			s = 3
+		},
+	};
+	local okFire, err = pcall(function()
+		soloRun:FireServer(unpack(args));
+	end);
+	if not okFire then
+		return "globby failed: " .. tostring(err);
+	end;
+	return "globby fired";
+end;
 cmdPluginAdd = {
 	{
 		Aliases = {
@@ -481,6 +582,17 @@ cmdPluginAdd = {
 		Info = "Stop auto door loop",
 		Function = function(arg)
 			return stopDoorLoop();
+		end,
+		RequiresArguments = false
+	},
+	{
+		Aliases = {
+			"globby"
+		},
+		ArgsHint = "",
+		Info = "",
+		Function = function(arg)
+			return doGlobby();
 		end,
 		RequiresArguments = false
 	}
