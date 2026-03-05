@@ -10,6 +10,7 @@ if lp then
 	end);
 end;
 local uiConn;
+local wsConn;
 local sendDone = false;
 local doorConn;
 local cpConn;
@@ -42,6 +43,16 @@ local blkNames = {
 local blkSet = {};
 for _, n in ipairs(blkNames) do
 	blkSet[n] = true;
+end;
+local wsBlkNames = {
+	"covet",
+	"seesay",
+	"fool",
+	"rain",
+};
+local wsBlkSet = {};
+for _, n in ipairs(wsBlkNames) do
+	wsBlkSet[n] = true;
 end;
 local zeroVector = Vector3.new();
 local doorOffset = CFrame.new(0, 0, (-5));
@@ -82,6 +93,27 @@ local function doUiBlock()
 		end;
 	end);
 	return blkNames;
+end;
+local function doWorkspaceBlock()
+	if wsConn then
+		return wsBlkNames;
+	end;
+	local function tryDestroy(inst)
+		local name = inst and inst.Name;
+		if typeof(name) ~= "string" then
+			return;
+		end;
+		if wsBlkSet[name:lower()] then
+			pcall(function()
+				inst:Destroy();
+			end);
+		end;
+	end;
+	for _, inst in ipairs(workspace:GetDescendants()) do
+		tryDestroy(inst);
+	end;
+	wsConn = workspace.DescendantAdded:Connect(tryDestroy);
+	return wsBlkNames;
 end;
 local function doSendKill()
 	if sendDone then
@@ -494,6 +526,7 @@ cmdPluginAdd = {
 		Info = "h",
 		Function = function(arg)
 			doUiBlock();
+			doWorkspaceBlock();
 			doSignedVolumeMute();
 			doJoeyBlock();
 			doKillClientGuard();
