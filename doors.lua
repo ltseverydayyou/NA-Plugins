@@ -138,19 +138,37 @@ local function safeCmdRun(args)
 	end);
 end;
 local function ensurePrompt(target, useFind)
-	local interval = 0.01;
-	if NAjobs and typeof(NAjobs.start) == "function" then
+	if typeof(cmdRun) == "function" then
 		local ok = pcall(function()
-			NAjobs.start("prompt", interval, target, useFind);
+			cmdRun({
+				useFind and "afpfind" or "afp",
+				target
+			});
 		end);
 		if ok then
 			return;
 		end;
 	end;
-	safeCmdRun({
-		useFind and "afpfind" or "afp",
-		target
-	});
+	local interval = 0.1;
+	if NAjobs and type(NAjobs.jobs) == "table" then
+		for _, job in pairs(NAjobs.jobs) do
+			if job and job.kind == "prompt" and job.autoIntervalLinked == true and tonumber(job.interval) then
+				interval = tonumber(job.interval) or interval;
+				break;
+			end;
+		end;
+	end;
+	if NAjobs and typeof(NAjobs.start) == "function" then
+		local ok, id = pcall(function()
+			return NAjobs.start("prompt", interval, target, useFind);
+		end);
+		if ok then
+			if id and NAjobs and typeof(NAjobs.setAutoIntervalLink) == "function" then
+				pcall(NAjobs.setAutoIntervalLink, id, true);
+			end;
+			return;
+		end;
+	end;
 end;
 local function ensureEsp(mode, term)
 	local t = (term or ""):lower();
