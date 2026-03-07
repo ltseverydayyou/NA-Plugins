@@ -1,3 +1,16 @@
+local __lt_oldcloneref = type(cloneref) == "function" and cloneref or nil;
+local function __lt_clone_service(name, refFn)
+	if type(refFn) ~= "function" then
+		return game:GetService(name);
+	end;
+	local ok, ref = pcall(function()
+		return refFn(game:GetService(name));
+	end);
+	if ok and ref ~= nil then
+		return ref;
+	end;
+	return game:GetService(name);
+end;
 local function apConfigForGame()
 	local gid = game.GameId;
 	local G = getgenv and getgenv() or _G;
@@ -6,7 +19,7 @@ local function apConfigForGame()
 	cfg.path = nil;
 	cfg.remote = nil;
 	cfg.btn = nil;
-	local plrs = game:GetService("Players");
+	local plrs = __lt_clone_service("Players", __lt_oldcloneref);
 	local lp = plrs.LocalPlayer;
 	local pg = lp and (lp:FindFirstChildOfClass("PlayerGui") or lp:FindFirstChild("PlayerGui"));
 	local function safe(f)
@@ -20,7 +33,7 @@ local function apConfigForGame()
 			workspace:FindFirstChild("Effects", true)
 		};
 		cfg.remote = {
-			inst = game:GetService("ReplicatedStorage").Events.Block,
+			inst = __lt_clone_service("ReplicatedStorage", __lt_oldcloneref).Events.Block,
 			args = {
 				[1] = CFrame.new(93.1502456665039, 22.6114559173584, 27.317428588867188, -0.9998003840446472, 0.008400668390095234, -0.018127603456377983, 0, 0.9073092937469482, 0.4204639792442322, 0.01997951976954937, 0.4203800559043884, -0.9071282148361206),
 				[2] = Vector3.new(86.81477355957031, 12.855721473693848, 54.24247360229492)
