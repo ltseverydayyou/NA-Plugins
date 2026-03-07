@@ -1,5 +1,14 @@
-local __lt_oldcloneref = type(cloneref) == "function" and cloneref or nil;
-local function __lt_clone_service(name, refFn)
+local __lt = { cr = type(cloneref) == "function" and cloneref or nil };
+function __lt.cv(value)
+	if __lt.cr and typeof(value) == "Instance" then
+		local ok, cloned = pcall(__lt.cr, value);
+		if ok and cloned ~= nil then
+			return cloned;
+		end;
+	end;
+	return value;
+end;
+function __lt.cs(name, refFn)
 	if type(refFn) ~= "function" then
 		return game:GetService(name);
 	end;
@@ -11,6 +20,28 @@ local function __lt_clone_service(name, refFn)
 	end;
 	return game:GetService(name);
 end;
+function __lt.ig(method)
+	return method == "FindFirstChild"
+		or method == "WaitForChild"
+		or method == "FindFirstChildOfClass"
+		or method == "FindFirstChildWhichIsA"
+		or method == "FindFirstAncestor"
+		or method == "FindFirstAncestorOfClass"
+		or method == "FindFirstAncestorWhichIsA"
+		or method == "GetChildren"
+		or method == "GetDescendants"
+		or method == "QueryDescendants";
+end;
+function __lt.cm(name, method, ...)
+	local service = __lt.ig(method)
+		and __lt.cs(name, __lt.cr)
+		or game:GetService(name);
+	local fn = service[method];
+	if type(fn) ~= "function" then
+		error(string.format("Service method %s.%s is not callable", tostring(name), tostring(method)));
+	end;
+	return fn(service, ...);
+end;
 local function apConfigForGame()
 	local gid = game.GameId;
 	local G = getgenv and getgenv() or _G;
@@ -19,7 +50,7 @@ local function apConfigForGame()
 	cfg.path = nil;
 	cfg.remote = nil;
 	cfg.btn = nil;
-	local plrs = __lt_clone_service("Players", __lt_oldcloneref);
+	local plrs = __lt.cs("Players", __lt.cr);
 	local lp = plrs.LocalPlayer;
 	local pg = lp and (lp:FindFirstChildOfClass("PlayerGui") or lp:FindFirstChild("PlayerGui"));
 	local function safe(f)
@@ -33,7 +64,7 @@ local function apConfigForGame()
 			workspace:FindFirstChild("Effects", true)
 		};
 		cfg.remote = {
-			inst = __lt_clone_service("ReplicatedStorage", __lt_oldcloneref).Events.Block,
+			inst = __lt.cs("ReplicatedStorage", __lt.cr).Events.Block,
 			args = {
 				[1] = CFrame.new(93.1502456665039, 22.6114559173584, 27.317428588867188, -0.9998003840446472, 0.008400668390095234, -0.018127603456377983, 0, 0.9073092937469482, 0.4204639792442322, 0.01997951976954937, 0.4203800559043884, -0.9071282148361206),
 				[2] = Vector3.new(86.81477355957031, 12.855721473693848, 54.24247360229492)

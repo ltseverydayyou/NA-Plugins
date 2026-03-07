@@ -1,5 +1,14 @@
-local __lt_oldcloneref = type(cloneref) == "function" and cloneref or nil;
-local function __lt_clone_service(name, refFn)
+local __lt = { cr = type(cloneref) == "function" and cloneref or nil };
+function __lt.cv(value)
+	if __lt.cr and typeof(value) == "Instance" then
+		local ok, cloned = pcall(__lt.cr, value);
+		if ok and cloned ~= nil then
+			return cloned;
+		end;
+	end;
+	return value;
+end;
+function __lt.cs(name, refFn)
 	if type(refFn) ~= "function" then
 		return game:GetService(name);
 	end;
@@ -11,18 +20,32 @@ local function __lt_clone_service(name, refFn)
 	end;
 	return game:GetService(name);
 end;
-local function __lt_call_service_method(name, method, ...)
-	local service = game:GetService(name);
+function __lt.ig(method)
+	return method == "FindFirstChild"
+		or method == "WaitForChild"
+		or method == "FindFirstChildOfClass"
+		or method == "FindFirstChildWhichIsA"
+		or method == "FindFirstAncestor"
+		or method == "FindFirstAncestorOfClass"
+		or method == "FindFirstAncestorWhichIsA"
+		or method == "GetChildren"
+		or method == "GetDescendants"
+		or method == "QueryDescendants";
+end;
+function __lt.cm(name, method, ...)
+	local service = __lt.ig(method)
+		and __lt.cs(name, __lt.cr)
+		or game:GetService(name);
 	local fn = service[method];
 	if type(fn) ~= "function" then
 		error(string.format("Service method %s.%s is not callable", tostring(name), tostring(method)));
 	end;
 	return fn(service, ...);
 end;
-local Players = __lt_clone_service("Players", __lt_oldcloneref);
-local ReplicatedStorage = __lt_clone_service("ReplicatedStorage", __lt_oldcloneref);
-local RunService = __lt_clone_service("RunService", __lt_oldcloneref);
-local SoundService = __lt_clone_service("SoundService", __lt_oldcloneref);
+local Players = __lt.cs("Players", __lt.cr);
+local ReplicatedStorage = __lt.cs("ReplicatedStorage", __lt.cr);
+local RunService = __lt.cs("RunService", __lt.cr);
+local SoundService = __lt.cs("SoundService", __lt.cr);
 local lp = Players.LocalPlayer;
 local ch = lp and (lp.Character or lp.CharacterAdded:Wait()) or nil;
 if lp then
@@ -142,7 +165,7 @@ local function doSendKill()
 	end;
 	sendDone = true;
 	task.defer(function()
-		for _, inst in ipairs(__lt_call_service_method("ReplicatedStorage", "QueryDescendants", "Instance")) do
+		for _, inst in ipairs(__lt.cm("ReplicatedStorage", "QueryDescendants", "Instance")) do
 			local n = inst.Name;
 			if typeof(n) == "string" and (n:lower()):find("send") then
 				pcall(function()
@@ -184,7 +207,7 @@ local function doSignedVolumeMute()
 		applyMute();
 		svValueConns[inst] = inst:GetPropertyChangedSignal("Value"):Connect(applyMute);
 	end;
-	for _, inst in ipairs(__lt_call_service_method("SoundService", "GetDescendants")) do
+	for _, inst in ipairs(__lt.cm("SoundService", "GetDescendants")) do
 		lockSignedVolume(inst);
 	end;
 	svConn = SoundService.DescendantAdded:Connect(function(inst)
@@ -261,7 +284,7 @@ local function doJoeyBlock()
 end;
 local function doKillClientFallback()
 	local removed = 0;
-	for _, inst in ipairs(__lt_call_service_method("ReplicatedStorage", "GetDescendants")) do
+	for _, inst in ipairs(__lt.cm("ReplicatedStorage", "GetDescendants")) do
 		local name = inst.Name;
 		if typeof(name) == "string" and name:lower() == "killclient" then
 			local isRemote = false;
@@ -434,7 +457,7 @@ local function stopDoorLoop()
 	return "door loop stopped";
 end;
 local function doGlobby()
-	local soloRun = __lt_call_service_method("ReplicatedStorage", "FindFirstChild", "SoloRun");
+	local soloRun = __lt.cm("ReplicatedStorage", "FindFirstChild", "SoloRun");
 	if not soloRun then
 		return "SoloRun remote not found";
 	end;

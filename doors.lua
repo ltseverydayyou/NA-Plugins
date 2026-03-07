@@ -1,5 +1,14 @@
-local __lt_oldcloneref = type(cloneref) == "function" and cloneref or nil;
-local function __lt_clone_service(name, refFn)
+local __lt = { cr = type(cloneref) == "function" and cloneref or nil };
+function __lt.cv(value)
+	if __lt.cr and typeof(value) == "Instance" then
+		local ok, cloned = pcall(__lt.cr, value);
+		if ok and cloned ~= nil then
+			return cloned;
+		end;
+	end;
+	return value;
+end;
+function __lt.cs(name, refFn)
 	if type(refFn) ~= "function" then
 		return game:GetService(name);
 	end;
@@ -11,8 +20,22 @@ local function __lt_clone_service(name, refFn)
 	end;
 	return game:GetService(name);
 end;
-local function __lt_call_service_method(name, method, ...)
-	local service = game:GetService(name);
+function __lt.ig(method)
+	return method == "FindFirstChild"
+		or method == "WaitForChild"
+		or method == "FindFirstChildOfClass"
+		or method == "FindFirstChildWhichIsA"
+		or method == "FindFirstAncestor"
+		or method == "FindFirstAncestorOfClass"
+		or method == "FindFirstAncestorWhichIsA"
+		or method == "GetChildren"
+		or method == "GetDescendants"
+		or method == "QueryDescendants";
+end;
+function __lt.cm(name, method, ...)
+	local service = __lt.ig(method)
+		and __lt.cs(name, __lt.cr)
+		or game:GetService(name);
 	local fn = service[method];
 	if type(fn) ~= "function" then
 		error(string.format("Service method %s.%s is not callable", tostring(name), tostring(method)));
@@ -53,10 +76,10 @@ local function addCharConn(conn)
 	nd.charConns = nd.charConns or {};
 	table.insert(nd.charConns, conn);
 end;
-local rs = __lt_clone_service("RunService", __lt_oldcloneref);
-local plrs = __lt_clone_service("Players", __lt_oldcloneref);
-local ss = __lt_clone_service("SoundService", __lt_oldcloneref);
-local rsrv = __lt_clone_service("ReplicatedStorage", __lt_oldcloneref);
+local rs = __lt.cs("RunService", __lt.cr);
+local plrs = __lt.cs("Players", __lt.cr);
+local ss = __lt.cs("SoundService", __lt.cr);
+local rsrv = __lt.cs("ReplicatedStorage", __lt.cr);
 local hf = hookfunction;
 local hm = hookmetamethod;
 local hasHook = typeof(hf) == "function";
@@ -285,7 +308,7 @@ local function startDoors()
 	end;
 	nd.lastDoorRoom = nd.lastDoorRoom or nil;
 	nd.roomConn = rs.RenderStepped:Connect(function()
-		local gd = __lt_call_service_method("ReplicatedStorage", "FindFirstChild", "GameData");
+		local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
 		local lr = gd and gd:FindFirstChild("LatestRoom");
 		if not lr then
 			return;
@@ -312,7 +335,7 @@ local function startDoors()
 	end);
 end;
 local function killJam()
-	local main = __lt_call_service_method("SoundService", "FindFirstChild", "Main");
+	local main = __lt.cm("SoundService", "FindFirstChild", "Main");
 	local j = main and main:FindFirstChild("Jamming");
 	if j then
 		j:Destroy();
@@ -460,7 +483,7 @@ local function crouchLoop()
 	if nd.crouchConn then
 		return;
 	end;
-	local remf = __lt_call_service_method("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local cr = remf and remf:FindFirstChild("Crouch");
 	if not cr then
 		return;
@@ -611,7 +634,7 @@ local function hookA90()
 	if not ok or type(fn) ~= "function" then
 		return;
 	end;
-	local remf = __lt_call_service_method("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local rem = remf and remf:FindFirstChild("A90");
 	local function safeA90(...)
 		local p = lp();
@@ -691,7 +714,7 @@ local function hookLadder()
 	if typeof(hm) ~= "function" or typeof(getnamecallmethod) ~= "function" or typeof(checkcaller) ~= "function" then
 		return;
 	end;
-	local remf = __lt_call_service_method("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local rem = remf and remf:FindFirstChild("ClimbLadder");
 	if not rem then
 		return;
@@ -737,7 +760,7 @@ local function plugRun()
 	crouchLoop();
 	a90UiMute();
 	hookLadder();
-	local remf = __lt_call_service_method("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local a90Rem = remf and remf:FindFirstChild("A90");
 	if a90Rem and (not nd.a90Hook) and (not nd.a90Attr) then
 		replaceConn("a90Attr", a90Rem.OnClientEvent:Connect(function(...)
