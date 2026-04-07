@@ -118,7 +118,6 @@ end;
 local Players = __lt.cs("Players", __lt.cr);
 local ReplicatedStorage = __lt.cs("ReplicatedStorage", __lt.cr);
 local RunService = __lt.cs("RunService", __lt.cr);
-local SoundService = __lt.cs("SoundService", __lt.cr);
 local lp = Players.LocalPlayer;
 local ch = lp and (lp.Character or lp.CharacterAdded:Wait()) or nil;
 if lp then
@@ -133,9 +132,6 @@ local doorConn;
 local cpConn;
 local pgConn;
 local roomConn;
-local svConn;
-local svCleanupConn;
-local svValueConns = {};
 local joeyBackpackConn;
 local joeyCharacterConn;
 local joeyCharacterAddedConn;
@@ -178,19 +174,6 @@ local function disconnectSignal(conn)
 		conn:Disconnect();
 	end;
 	return nil;
-end;
-local function disconnectSignedVolume(inst)
-	local conn = svValueConns[inst];
-	if conn then
-		conn:Disconnect();
-		svValueConns[inst] = nil;
-	end;
-end;
-local function clearSignedVolumeHooks()
-	for inst, conn in pairs(svValueConns) do
-		conn:Disconnect();
-		svValueConns[inst] = nil;
-	end;
 end;
 local function doUiBlock()
 	if not lp or uiConn then
@@ -248,51 +231,6 @@ local function doSendKill()
 		end;
 	end);
 	return "send-kill queued";
-end;
-local function doSignedVolumeMute()
-	clearSignedVolumeHooks();
-	svConn = disconnectSignal(svConn);
-	svCleanupConn = disconnectSignal(svCleanupConn);
-	local found = 0;
-	local function lockSignedVolume(inst)
-		if (not inst) or inst.Name ~= "SignedVolume" or svValueConns[inst] then
-			return;
-		end;
-		local isValue = false;
-		local ok = pcall(function()
-			isValue = inst:IsA("ValueBase");
-		end);
-		if (not ok) or (not isValue) then
-			return;
-		end;
-		local function applyMute()
-			if not inst.Parent then
-				disconnectSignedVolume(inst);
-				return;
-			end;
-			pcall(function()
-				if inst.Value ~= 0 then
-					inst.Value = 0;
-				end;
-			end);
-		end;
-		found = found + 1;
-		applyMute();
-		svValueConns[inst] = inst:GetPropertyChangedSignal("Value"):Connect(applyMute);
-	end;
-	for _, inst in ipairs(__lt.cm("SoundService", "GetDescendants")) do
-		lockSignedVolume(inst);
-	end;
-	svConn = SoundService.DescendantAdded:Connect(function(inst)
-		lockSignedVolume(inst);
-	end);
-	svCleanupConn = SoundService.DescendantRemoving:Connect(function(inst)
-		disconnectSignedVolume(inst);
-	end);
-	if found > 0 then
-		return "SignedVolume values locked to 0";
-	end;
-	return "Watching SoundService for SignedVolume values";
 end;
 local function isJoeyTool(inst)
 	local name = inst and inst.Name;
@@ -634,7 +572,6 @@ cmdPluginAdd = {
 		Function = function(arg)
 			doUiBlock();
 			doWorkspaceBlock();
-			doSignedVolumeMute();
 			doJoeyBlock();
 			doKillClientGuard();
 			return blkNames;
@@ -650,14 +587,12 @@ cmdPluginAdd = {
 		Info = "Grace full: UI block, send kill, auto doors",
 		Function = function(arg)
 			local u = doUiBlock();
-			local v = doSignedVolumeMute();
 			local j = doJoeyBlock();
 			local s = doSendKill();
 			local d = doDoorLoop();
 			local k = doKillClientGuard();
 			return {
 				ui = u,
-				volume = v,
 				joey = j,
 				send = s,
 				door = d,
