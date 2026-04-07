@@ -811,6 +811,365 @@ local function hookLadder()
 	nd.ladHook = true;
 	nd.ladMm = old;
 end;
+local _env = getgenv and getgenv() or _G or {};
+local Wait = task.wait;
+local Delay = task.delay;
+local Spawn = task.spawn;
+local Insert = table.insert;
+local Concat = table.concat;
+local promptPartCache = {};
+local glitchMarks = {
+	"̶",
+	"̷",
+	"̸",
+	"̹",
+	"̺",
+	"̻",
+	"͓",
+	"͔",
+	"͘",
+	"͜",
+	"͞",
+	"͟",
+	"͢"
+};
+local hparts = {};
+local hconn;
+local function hb(n)
+	for _ = 1, n or 1 do
+		rs.Heartbeat:Wait();
+	end;
+end;
+local function regHp(p)
+	if not p then
+		return;
+	end;
+	hparts[p] = tick();
+	if hconn then
+		return;
+	end;
+	hconn = rs.Heartbeat:Connect(function()
+		local now = tick();
+		for part, t0 in pairs(hparts) do
+			if (not part) or (not part.Parent) or (now - t0 > 10) then
+				hparts[part] = nil;
+				if part then
+					pcall(function()
+						part:Destroy();
+					end);
+				end;
+			end;
+		end;
+		if (not next(hparts)) and hconn then
+			hconn:Disconnect();
+			hconn = nil;
+		end;
+	end);
+end;
+local function rStringgg()
+	local ok, guid = pcall(__lt.cm, "HttpService", "GenerateGUID", false);
+	if ok then
+		return guid;
+	end;
+	local length = math.random(10, 20);
+	local result = {};
+	for _ = 1, length do
+		local char = string.char(math.random(32, 126));
+		Insert(result, char);
+		if math.random() < 0.5 then
+			local numGlitches = math.random(1, 4);
+			for _ = 1, numGlitches do
+				Insert(result, glitchMarks[math.random(#glitchMarks)]);
+			end;
+		end;
+	end;
+	if math.random() < 0.3 then
+		Insert(result, utf8.char(math.random(768, 879)));
+	end;
+	if math.random() < 0.1 then
+		Insert(result, "\000");
+	end;
+	if math.random() < 0.1 then
+		Insert(result, string.rep("43", math.random(5, 20)));
+	end;
+	if math.random() < 0.2 then
+		Insert(result, utf8.char(8238));
+	end;
+	return Concat(result);
+end;
+local function getPromptPart(pp)
+	if not pp then
+		return nil;
+	end;
+	local c = promptPartCache[pp];
+	if c ~= nil then
+		if c == false then
+			return nil;
+		end;
+		return c;
+	end;
+	local parent = pp.Parent;
+	local part;
+	if parent then
+		if parent:IsA("Attachment") then
+			local p = parent.Parent;
+			if p and p:IsA("BasePart") then
+				part = p;
+			end;
+		elseif parent:IsA("BasePart") then
+			part = parent;
+		end;
+	end;
+	if not part then
+		local model = pp:FindFirstAncestorWhichIsA("Model");
+		if model then
+			if model.PrimaryPart then
+				part = model.PrimaryPart;
+			else
+				part = model:FindFirstChildWhichIsA("BasePart", true);
+			end;
+		end;
+	end;
+	if not part then
+		part = pp:FindFirstAncestorWhichIsA("BasePart");
+	end;
+	promptPartCache[pp] = part or false;
+	return part;
+end;
+local function toPromptOpts(o)
+	if typeof(o) == "number" then
+		return {
+			hold = o
+		};
+	end;
+	return typeof(o) == "table" and o or {};
+end;
+local promptState = {};
+local function snapshotPrompt(pp)
+	return {
+		E = pp.Enabled,
+		H = pp.HoldDuration,
+		R = pp.RequiresLineOfSight,
+		D = pp.MaxActivationDistance,
+		X = pp.Exclusivity
+	};
+end;
+local function cleanPromptProxies(s)
+	local list = s and s.proxy;
+	if not list then
+		return;
+	end;
+	for i = 1, #list do
+		local p = list[i];
+		if p and p.Parent then
+			pcall(function()
+				p:Destroy();
+			end);
+		end;
+		list[i] = nil;
+	end;
+	s.proxy = nil;
+end;
+local function beginPrompt(pp, o)
+	if not (pp and pp.Parent) then
+		return false;
+	end;
+	local s = promptState[pp];
+	if not s then
+		s = snapshotPrompt(pp);
+		s.ref = 0;
+		s.inFlight = false;
+		s.proxy = nil;
+		promptState[pp] = s;
+	end;
+	if s.inFlight then
+		return false;
+	end;
+	s.inFlight = true;
+	s.ref += 1;
+	pp.HoldDuration = 0;
+	if o.requireLoS ~= nil then
+		pp.RequiresLineOfSight = o.requireLoS and true or false;
+	elseif o.disableLoS ~= false then
+		pp.RequiresLineOfSight = false;
+	end;
+	if o.distance ~= nil then
+		pp.MaxActivationDistance = o.distance;
+	elseif o.autoDistance ~= false then
+		pp.MaxActivationDistance = 1000000000;
+	end;
+	if o.exclusivity ~= nil then
+		pp.Exclusivity = o.exclusivity;
+	else
+		pp.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow;
+	end;
+	if o.forceEnable ~= false then
+		pp.Enabled = true;
+	end;
+	return true;
+end;
+local function finishPrompt(pp)
+	local s = promptState[pp];
+	if not s then
+		return;
+	end;
+	s.ref -= 1;
+	s.inFlight = false;
+	if s.ref <= 0 and pp and pp.Parent then
+		pp.Enabled = s.E;
+		pp.HoldDuration = s.H;
+		pp.RequiresLineOfSight = s.R;
+		pp.MaxActivationDistance = s.D;
+		pp.Exclusivity = s.X;
+		cleanPromptProxies(s);
+		promptState[pp] = nil;
+	elseif s.ref <= 0 then
+		cleanPromptProxies(s);
+		promptState[pp] = nil;
+	end;
+end;
+local function fireOnePrompt(pp, o)
+	if not beginPrompt(pp, o) then
+		return;
+	end;
+	local restorePos;
+	if o.relocate ~= false then
+		local part = getPromptPart(pp);
+		local cam = workspace.CurrentCamera;
+		if part and part:IsA("BasePart") and cam then
+			local camPos = cam.CFrame.Position;
+			local look = cam.CFrame.LookVector;
+			local dir = part.Position - camPos;
+			if dir.Magnitude > 0 then
+				local dot = dir.Unit:Dot(look);
+				if dot < 0 then
+					local dist = tonumber(o.relocateDistance) or 4;
+					local downFactor = o.relocateDownFactor ~= nil and o.relocateDownFactor or 1.8;
+					local target = camPos + look * dist + cam.CFrame.UpVector * -dist * downFactor;
+					local useProxy = o.relocateProxy ~= false;
+					if useProxy then
+						local ok, proxy = pcall(function()
+							local p = Instance.new("Part");
+							p.Size = Vector3.new(0.2, 0.2, 0.2);
+							p.Anchored = true;
+							p.CanCollide = false;
+							p.CanTouch = false;
+							p.CanQuery = false;
+							p.Transparency = 1;
+							p.CFrame = CFrame.new(target, target + look);
+							p.Name = rStringgg() or "\000";
+							p.Parent = workspace;
+							return p;
+						end);
+						if ok and proxy then
+							regHp(proxy);
+							local s = promptState[pp];
+							if s then
+								s.proxy = s.proxy or {};
+								Insert(s.proxy, proxy);
+							end;
+							local origParent = pp.Parent;
+							pp.Parent = proxy;
+							restorePos = function()
+								if pp then
+									pp.Parent = origParent;
+								end;
+								if proxy and proxy.Parent then
+									pcall(function()
+										proxy:Destroy();
+									end);
+								end;
+							end;
+						end;
+					end;
+					if not restorePos then
+						local origCF = part.CFrame;
+						local origCollide = part.CanCollide;
+						local origTouch = part.CanTouch;
+						local origQuery = part.CanQuery;
+						local origTrans = part.Transparency;
+						local hasLTM, origLTM = pcall(function()
+							return part.LocalTransparencyModifier;
+						end);
+						part.CFrame = CFrame.new(target, target + look);
+						part.CanCollide = false;
+						part.CanTouch = false;
+						part.CanQuery = false;
+						part.Transparency = o.relocateTransparency ~= nil and o.relocateTransparency or 1;
+						if hasLTM then
+							pcall(function()
+								part.LocalTransparencyModifier = o.relocateTransparency ~= nil and o.relocateTransparency or 1;
+							end);
+						end;
+						restorePos = function()
+							if part and part.Parent then
+								part.CFrame = origCF;
+								part.CanCollide = origCollide;
+								part.CanTouch = origTouch;
+								part.CanQuery = origQuery;
+								part.Transparency = origTrans;
+								if hasLTM then
+									pcall(function()
+										part.LocalTransparencyModifier = origLTM;
+									end);
+								end;
+							end;
+						end;
+					end;
+				end;
+			end;
+		end;
+	end;
+	local ok, err = pcall(function()
+		hb(1);
+		pp:InputHoldBegin();
+		local t = o.hold ~= nil and tonumber(o.hold) or 0;
+		if t and t > 0 then
+			Wait(t);
+		else
+			hb(1);
+		end;
+		pp:InputHoldEnd();
+		hb(1);
+	end);
+	if restorePos then
+		pcall(restorePos);
+	end;
+	finishPrompt(pp);
+	if not ok then
+		warn(string.format("[fireproximityprompt] %s", tostring(err)));
+	end;
+end;
+_env.fireproximityprompt = function(target, opts)
+	local o = toPromptOpts(opts);
+	local list = {};
+	if typeof(target) == "Instance" and target:IsA("ProximityPrompt") then
+		list[1] = target;
+	elseif typeof(target) == "table" then
+		for _, v in ipairs(target) do
+			if typeof(v) == "Instance" and v:IsA("ProximityPrompt") then
+				Insert(list, v);
+			end;
+		end;
+	else
+		return false;
+	end;
+	local stagger = o.stagger ~= nil and math.max(0, o.stagger) or 0;
+	if stagger <= 0 and #list > 1 then
+		stagger = 0.02;
+	end;
+	for i, pp in ipairs(list) do
+		local d = stagger * (i - 1);
+		if d > 0 then
+			Delay(d, function()
+				fireOnePrompt(pp, o);
+			end);
+		else
+			Spawn(fireOnePrompt, pp, o);
+		end;
+	end;
+	return #list > 0;
+end;
 local function plugRun()
 	for _, t in ipairs(promptTargets) do
 		ensurePrompt(t, false);
