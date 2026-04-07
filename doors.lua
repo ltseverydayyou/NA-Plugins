@@ -117,6 +117,17 @@ function __lt.cm(name, method, ...)
 end;
 local G = getgenv and getgenv() or _G;
 G.__nadoors = G.__nadoors or {};
+G.__nadoorsCamHook = G.__nadoorsCamHook or function(ctx, mag, rou, fi, fo, p6, p7)
+	if type(mag) == "number" and mag >= 10 then
+		mag = 0;
+	end;
+	local env = getgenv and getgenv() or _G;
+	local state = env and env.__nadoors;
+	local old = state and state.camOld;
+	if type(old) == "function" then
+		return old(ctx, mag, rou, fi, fo, p6, p7);
+	end;
+end;
 local nd = G.__nadoors;
 if nd.init then
 	return;
@@ -662,7 +673,7 @@ local function hookSpider()
 	end;
 end;
 local function hookCam()
-	if nd.camHook then
+	if nd.camHook or nd.camHookFailed then
 		return;
 	end;
 	local m = getMods();
@@ -678,15 +689,13 @@ local function hookCam()
 		return;
 	end;
 	if hasHook then
-		nd.camHook = true;
-		local old;
-		old = hf(fn, function(ctx, mag, rou, fi, fo, p6, p7)
-			if type(mag) == "number" and mag >= 10 then
-				mag = 0;
-			end;
-			return old(ctx, mag, rou, fi, fo, p6, p7);
-		end);
-		nd.camOld = old;
+		local okHook, old = pcall(hf, fn, G.__nadoorsCamHook);
+		if okHook and type(old) == "function" then
+			nd.camOld = old;
+			nd.camHook = true;
+		else
+			nd.camHookFailed = true;
+		end;
 	else
 		nd.camHook = true;
 	end;
