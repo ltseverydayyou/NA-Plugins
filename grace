@@ -169,6 +169,27 @@ for _, n in ipairs(wsBlkNames) do
 end;
 local zeroVector = Vector3.new();
 local doorOffset = CFrame.new(0, 0, -5);
+local fallenDoorBuffer = 12;
+local function clearRootMotion(root, hardStop)
+	root.AssemblyLinearVelocity = zeroVector;
+	root.Velocity = zeroVector;
+	if hardStop then
+		root.AssemblyAngularVelocity = zeroVector;
+		root.RotVelocity = zeroVector;
+	end;
+end;
+local function getSafeDoorCFrame(door)
+	local target = door.CFrame * doorOffset;
+	local destroyY = workspace.FallenPartsDestroyHeight;
+	local minY = destroyY + fallenDoorBuffer;
+	local raised = false;
+	if target.Position.Y <= minY then
+		local safePos = Vector3.new(target.Position.X, minY, target.Position.Z);
+		target = CFrame.lookAt(safePos, safePos + target.LookVector, target.UpVector);
+		raised = true;
+	end;
+	return target, raised;
+end;
 local function disconnectSignal(conn)
 	if conn then
 		conn:Disconnect();
@@ -452,9 +473,12 @@ local function doDoorLoop()
 		local dy = doorPos.Y - hrpPos.Y;
 		local dz = doorPos.Z - hrpPos.Z;
 		if ((dx * dx) + (dy * dy) + (dz * dz)) > 0.25 then
-			lastChar:PivotTo(tgtDoor.CFrame * doorOffset);
-			hrp.AssemblyLinearVelocity = zeroVector;
-			hrp.Velocity = zeroVector;
+			local targetCFrame, raised = getSafeDoorCFrame(tgtDoor);
+			if raised then
+				clearRootMotion(hrp, true);
+			end;
+			lastChar:PivotTo(targetCFrame);
+			clearRootMotion(hrp, raised);
 		end;
 	end;
 	doorConn = RunService.Heartbeat:Connect(step);
@@ -651,7 +675,9 @@ cmdPluginAdd = {
 	{
 		Aliases = {
 			"gracedooroff",
-			"gdooroff"
+			"gdooroff",
+			"ungdoor",
+			"ungracedoor"
 		},
 		ArgsHint = "",
 		Info = "Stop auto door loop",
