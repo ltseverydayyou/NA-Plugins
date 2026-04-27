@@ -129,6 +129,7 @@ G.__nadoorsCamHook = G.__nadoorsCamHook or function(ctx, mag, rou, fi, fo, p6, p
 	end;
 end;
 local nd = G.__nadoors;
+nd.doorDist = nd.doorDist or math.huge;
 if nd.init then
 	return;
 end;
@@ -330,6 +331,37 @@ local function gch()
 	local c = p.Character;
 	return c;
 end;
+local function getRoot()
+	local c = gch();
+	if not c then
+		return;
+	end;
+	return c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("LowerTorso") or c:FindFirstChild("Torso") or c:FindFirstChildWhichIsA("BasePart");
+end;
+local function getDoorPos(d)
+	if typeof(d) ~= "Instance" then
+		return;
+	end;
+	if d:IsA("BasePart") then
+		return d.Position;
+	end;
+	if d:IsA("Model") then
+		local pp = d.PrimaryPart;
+		if pp and pp:IsA("BasePart") then
+			return pp.Position;
+		end;
+		local ok, cf = pcall(function()
+			return d:GetPivot();
+		end);
+		if ok and typeof(cf) == "CFrame" then
+			return cf.Position;
+		end;
+		local p = d:FindFirstChildWhichIsA("BasePart", true);
+		if p then
+			return p.Position;
+		end;
+	end;
+end;
 local function pg()
 	local p = lp();
 	if not p then
@@ -412,6 +444,14 @@ local function startDoors()
 		local ev = d:FindFirstChild("ClientOpen");
 		if not ev then
 			return;
+		end;
+		local md = tonumber(nd.doorDist) or math.huge;
+		if md < math.huge then
+			local root = getRoot();
+			local pos = getDoorPos(d);
+			if not root or not pos or (root.Position - pos).Magnitude > md then
+				return;
+			end;
 		end;
 		pcall(function()
 			ev:FireServer();
@@ -1179,6 +1219,24 @@ _env.fireproximityprompt = function(target, opts)
 	end;
 	return #list > 0;
 end;
+local function doorDistCmd(...)
+	local vals = {...};
+	local v = vals[1];
+	if type(v) == "table" then
+		v = v[1] or v.Distance or v.distance or v.Value or v.value;
+	end;
+	local t = tostring(v or "inf"):lower();
+	if t == "" or t == "inf" or t == "infinite" or t == "default" or t == "reset" then
+		nd.doorDist = math.huge;
+		return "ClientOpen distance: INF";
+	end;
+	local n = tonumber(t);
+	if not n then
+		return "ClientOpen distance must be a number or INF";
+	end;
+	nd.doorDist = math.max(0, n);
+	return "ClientOpen distance: " .. tostring(nd.doorDist);
+end;
 local function plugRun()
 	for _, t in ipairs(promptTargets) do
 		ensurePrompt(t, false);
@@ -1222,6 +1280,17 @@ cmdPluginAdd = {
 		},
 		Info = "boop",
 		Function = plugRun,
+		RequiresArguments = false
+	},
+	{
+		Aliases = {
+			"doordist",
+			"dooropenrange",
+			"clientopendist",
+			"clientopenrange"
+		},
+		Info = "sets ClientOpen fire distance",
+		Function = doorDistCmd,
 		RequiresArguments = false
 	}
 };
