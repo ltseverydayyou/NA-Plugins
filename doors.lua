@@ -242,10 +242,6 @@ local otherCmds = {
 		"candle"
 	},
 	{
-		"lws",
-		"21.1"
-	},
-	{
 		"strengthen",
 		"inf"
 	},
