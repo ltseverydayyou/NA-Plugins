@@ -98,10 +98,54 @@ local Torso = Char:WaitForChild("Torso")
 local rArm  = Char:WaitForChild("Right Arm")
 local lArm  = Char:WaitForChild("Left Arm")
 local Head  = Char:WaitForChild("Head")
+local Humanoid = Char:FindFirstChildOfClass("Humanoid")
 
-local rShoulder = Torso:FindFirstChild("Right Shoulder")
-local lShoulder = Torso:FindFirstChild("Left Shoulder")
+if not Humanoid or Humanoid.RigType ~= Enum.HumanoidRigType.R6 then
+	return
+end
 
+local function resolveR6Shoulders()
+	local right = Torso:FindFirstChild("Right Shoulder")
+	local left = Torso:FindFirstChild("Left Shoulder")
+	if right and left then
+		return right, left
+	end
+	pcall(function()
+		Humanoid:UnequipTools()
+	end)
+	local deadline = os.clock() + 1.5
+	repeat
+		task.wait()
+		right = Torso:FindFirstChild("Right Shoulder")
+		left = Torso:FindFirstChild("Left Shoulder")
+	until (right and left) or os.clock() >= deadline
+	if right and left then
+		return right, left
+	end
+	for _, inst in ipairs(Torso:GetChildren()) do
+		if inst:IsA("Weld") and (inst.Name == "lWeld" or inst.Name == "rWeld") then
+			NADestroy(inst)
+		end
+	end
+	local function makeShoulder(name, part1, c0, c1)
+		local joint = Instance.new("Motor6D")
+		joint.Name = name
+		joint.Part0 = Torso
+		joint.Part1 = part1
+		joint.C0 = c0
+		joint.C1 = c1
+		joint.Parent = Torso
+		return joint
+	end
+	right = right or makeShoulder("Right Shoulder", rArm, CFrame.new(1, 0.5, 0) * CFrame.Angles(0, math.rad(90), 0), CFrame.new(-0.5, 0.5, 0) * CFrame.Angles(0, math.rad(90), 0))
+	left = left or makeShoulder("Left Shoulder", lArm, CFrame.new(-1, 0.5, 0) * CFrame.Angles(0, math.rad(-90), 0), CFrame.new(0.5, 0.5, 0) * CFrame.Angles(0, math.rad(-90), 0))
+	return right, left
+end
+
+local rShoulder, lShoulder = resolveR6Shoulders()
+if not rShoulder or not lShoulder then
+	return
+end
 
 local defLS_C0 = lShoulder.C0
 local defLS_C1 = lShoulder.C1
