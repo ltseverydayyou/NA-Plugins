@@ -571,7 +571,7 @@ local function doGlobby()
 					["QI"] = true,
 					["WO"] = true,
 					["OY"] = 3,
-					["eQ"] = 15,
+					["eQ"] = 5, --doors dupe
 					["MIM"] = true,
 					["ie"] = true,
 					["ti"] = true,
