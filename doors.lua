@@ -129,9 +129,11 @@ G.__nadoorsCamHook = G.__nadoorsCamHook or function(ctx, mag, rou, fi, fo, p6, p
 	end;
 end;
 local nd = G.__nadoors;
+local ndWasInit = nd.init == true;
 nd.doorDist = nd.doorDist or math.huge;
-if nd.init then
-	return;
+if ndWasInit and type(nd.cleanup) == "function" then
+	pcall(nd.cleanup);
+	ndWasInit = false;
 end;
 nd.init = true;
 local function disconnectConn(conn)
@@ -160,6 +162,28 @@ local function addCharConn(conn)
 	end;
 	nd.charConns = nd.charConns or {};
 	table.insert(nd.charConns, conn);
+end;
+local function cleanupRuntime()
+	clearCharConns();
+	for _, key in ipairs({
+		"roomConn",
+		"attrConn",
+		"crouchConn",
+		"charConn",
+		"pgConn",
+		"modsConn",
+		"a90Attr",
+	}) do
+		disconnectConn(nd[key]);
+		nd[key] = nil;
+	end;
+	nd.charBound = nil;
+	nd.init = false;
+end;
+nd.cleanup = cleanupRuntime;
+if ndWasInit then
+	cleanupRuntime();
+	nd.init = true;
 end;
 local rs = __lt.cs("RunService", __lt.cr);
 local plrs = __lt.cs("Players", __lt.cr);

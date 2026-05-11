@@ -118,12 +118,27 @@ end
 local Players = __lt.cs("Players", __lt.cr)
 local ReplicatedStorage = __lt.cs("ReplicatedStorage", __lt.cr)
 local RunService = __lt.cs("RunService", __lt.cr)
+local runtimeEnv = (getgenv and getgenv()) or _G
+if type(runtimeEnv.__NAGraceRuntime) == "table" and type(runtimeEnv.__NAGraceRuntime.cleanup) == "function" then
+	pcall(runtimeEnv.__NAGraceRuntime.cleanup)
+end
+local graceRuntime = {
+	alive = true,
+	connections = {},
+}
+runtimeEnv.__NAGraceRuntime = graceRuntime
+local function track(conn)
+	if conn then
+		graceRuntime.connections[#graceRuntime.connections + 1] = conn
+	end
+	return conn
+end
 local lp = Players.LocalPlayer
 local ch = lp and (lp.Character or lp.CharacterAdded:Wait()) or nil
 if lp then
-	lp.CharacterAdded:Connect(function(c)
+	track(lp.CharacterAdded:Connect(function(c)
 		ch = c
-	end)
+	end))
 end
 local uiConn
 local wsConn
@@ -196,6 +211,28 @@ local function disconnectSignal(conn)
 	end
 	return nil
 end
+graceRuntime.cleanup = function()
+	if not graceRuntime.alive then
+		return
+	end
+	graceRuntime.alive = false
+	for _, conn in ipairs(graceRuntime.connections) do
+		disconnectSignal(conn)
+	end
+	graceRuntime.connections = {}
+	uiConn = nil
+	wsConn = nil
+	doorConn = nil
+	cpConn = nil
+	pgConn = nil
+	roomConn = nil
+	joeyBackpackConn = nil
+	joeyCharacterConn = nil
+	joeyCharacterAddedConn = nil
+	if runtimeEnv.__NAGraceRuntime == graceRuntime then
+		runtimeEnv.__NAGraceRuntime = nil
+	end
+end
 local function doUiBlock()
 	if not lp or uiConn then
 		return blkNames
@@ -207,12 +244,12 @@ local function doUiBlock()
 			c:Destroy()
 		end
 	end
-	uiConn = pg.ChildAdded:Connect(function(child)
+	uiConn = track(pg.ChildAdded:Connect(function(child)
 		local name = child.Name:lower()
 		if blkSet[name] then
 			child:Destroy()
 		end
-	end)
+	end))
 	return blkNames
 end
 local function doWorkspaceBlock()
@@ -233,7 +270,7 @@ local function doWorkspaceBlock()
 	for _, inst in ipairs(workspace:GetDescendants()) do
 		tryDestroy(inst)
 	end
-	wsConn = workspace.DescendantAdded:Connect(tryDestroy)
+	wsConn = track(workspace.DescendantAdded:Connect(tryDestroy))
 	return wsBlkNames
 end
 local function doSendKill()
@@ -280,14 +317,14 @@ local function bindJoeyContainer(container)
 	for _, child in ipairs(container:GetChildren()) do
 		clearJoey(child)
 	end
-	return container.ChildAdded:Connect(function(child)
+	return track(container.ChildAdded:Connect(function(child)
 		if not isJoeyTool(child) then
 			return
 		end
 		task.delay(1, function()
 			clearJoey(child)
 		end)
-	end)
+	end))
 end
 local function doJoeyBlock()
 	if not lp then
@@ -311,7 +348,7 @@ local function doJoeyBlock()
 		joeyCharacterAddedConn:Disconnect()
 		joeyCharacterAddedConn = nil
 	end
-	joeyCharacterAddedConn = lp.CharacterAdded:Connect(hookCharacter)
+	joeyCharacterAddedConn = track(lp.CharacterAdded:Connect(hookCharacter))
 	return "Joey blocker running"
 end
 local function doKillClientFallback()
@@ -419,14 +456,14 @@ local function doDoorLoop()
 		for _, gui in ipairs(cp:GetChildren()) do
 			handleGui(gui)
 		end
-		cpConn = cp.ChildAdded:Connect(handleGui)
+		cpConn = track(cp.ChildAdded:Connect(handleGui))
 	end
 	pgConn = disconnectSignal(pgConn)
-	pgConn = pg.ChildAdded:Connect(function(child)
+	pgConn = track(pg.ChildAdded:Connect(function(child)
 		if child.Name == "ClickPrompts" then
 			bindClickPrompts(child)
 		end
-	end)
+	end))
 	bindClickPrompts(pg:FindFirstChild("ClickPrompts"))
 	local function updDoor()
 		if typeof(currentRoom) ~= "number" then
@@ -443,10 +480,10 @@ local function doDoorLoop()
 		tgtDoor = getDoor(r)
 	end
 	roomConn = disconnectSignal(roomConn)
-	roomConn = workspace:GetAttributeChangedSignal("CurrentRoom"):Connect(function()
+	roomConn = track(workspace:GetAttributeChangedSignal("CurrentRoom"):Connect(function()
 		currentRoom = workspace:GetAttribute("CurrentRoom")
 		updDoor()
-	end)
+	end))
 	updDoor()
 	local function step()
 		if ch ~= lastChar then
@@ -483,7 +520,7 @@ local function doDoorLoop()
 			clearRootMotion(hrp, raised)
 		end
 	end
-	doorConn = RunService.Heartbeat:Connect(step)
+	doorConn = track(RunService.Heartbeat:Connect(step))
 	return "door loop started"
 end
 local function stopDoorLoop()

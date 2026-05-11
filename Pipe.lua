@@ -83,6 +83,22 @@ local function NADestroy(instance)
 	end
 end
 
+local NARuntimeEnv = (getgenv and getgenv()) or _G
+if type(NARuntimeEnv.__NAPipeRuntime) == "table" and type(NARuntimeEnv.__NAPipeRuntime.cleanup) == "function" then
+	pcall(NARuntimeEnv.__NAPipeRuntime.cleanup)
+end
+local NARuntime = {
+	alive = true,
+	connections = {},
+}
+NARuntimeEnv.__NAPipeRuntime = NARuntime
+local function NATrack(conn)
+	if conn then
+		NARuntime.connections[#NARuntime.connections + 1] = conn
+	end
+	return conn
+end
+
 local Players      = NAGetService("Players")
 local RunService   = NAGetService("RunService")
 local TweenService = NAGetService("TweenService")
@@ -549,15 +565,44 @@ reloadVal.Value     = false
 reloadVal.Parent    = Tool
 
 Tool.Parent = LP.Backpack
+NARuntime.tool = Tool
+NARuntime.cleanup = function()
+	if not NARuntime.alive then
+		return
+	end
+	NARuntime.alive = false
+	activeToken = activeToken + 1
+	Selected = false
+	pulling = false
+	drawing = false
+	activatedConn = NADisconnect(activatedConn)
+	deactivatedConn = NADisconnect(deactivatedConn)
+	NADestroy(lWeld)
+	NADestroy(rWeld)
+	NADestroy(currentPipe)
+	NADestroy(currentWeld)
+	NADestroy(pipeWeld)
+	NADestroy(pipeAnchor)
+	lWeld, rWeld = nil, nil
+	currentPipe, currentWeld, pipeWeld, pipeAnchor = nil, nil, nil, nil
+	for _, conn in ipairs(NARuntime.connections) do
+		NADisconnect(conn)
+	end
+	NARuntime.connections = {}
+	NADestroy(Tool)
+	if NARuntimeEnv.__NAPipeRuntime == NARuntime then
+		NARuntimeEnv.__NAPipeRuntime = nil
+	end
+end
 
 local function isCurrentRun(token)
-	return token == activeToken and Selected and Tool and Tool.Parent ~= nil
+	return NARuntime.alive and token == activeToken and Selected and Tool and Tool.Parent ~= nil
 end
 
 
 
 
-Tool.Equipped:Connect(function()
+NATrack(Tool.Equipped:Connect(function()
 	activeToken = activeToken + 1
 	local equipToken = activeToken
 	Selected = true
@@ -755,12 +800,12 @@ Tool.Equipped:Connect(function()
 			end)
 		end
 	end)
-end)
+end))
 
 
 
 
-Tool.Unequipped:Connect(function()
+NATrack(Tool.Unequipped:Connect(function()
 	activeToken = activeToken + 1
 	Selected = false
 	activatedConn = NADisconnect(activatedConn)
@@ -788,4 +833,4 @@ Tool.Unequipped:Connect(function()
 	restoreShoulders()
 
 
-end)
+end))
