@@ -1005,7 +1005,7 @@ local function getPromptPart(pp)
 	promptPartCache[pp] = part or false;
 	return part;
 end;
-local isPoopSploit = identifyexecutor and ((identifyexecutor()):lower() == "solara" or (identifyexecutor()):lower() == "xeno") or typeof(firetouchinterest) ~= "function";
+local isPoopSploit = true
 if isPoopSploit then
 	local function toOpts(o)
 		if typeof(o) == "number" then
