@@ -1612,7 +1612,7 @@ function nd.silenceSound(s)
 		return;
 	end;
 	local n = s.Name:lower();
-	if n:find("oxygen") or n:find("heartbeat") or n:find("jamming") or n:find("ambience") or n:find("jumpscare") or n:find("rush") or n:find("ambush") or n:find("screech") or n:find("dread") or n:find("seek") or n:find("figure") or n:find("growl") or n:find("scare") or n:find("static") or n:find("sanity") or n:find("cold") then
+	if n:find("oxygen") or n:find("heartbeat") or n:find("jamming") or n:find("ambience") or n:find("jumpscare") or n:find("rush") or n:find("ambush") or n:find("screech") or n:find("dread") or n:find("seek") or n:find("scare") or n:find("static") or n:find("sanity") or n:find("cold") then
 		nd.trySet(s, "Volume", 0);
 		pcall(function()
 			s:Stop();
@@ -1728,7 +1728,6 @@ nd.badExact = {
 	ambush = true;
 	seek = true;
 	eyes = true;
-	figure = true;
 };
 function nd.hookBadRemotes()
 	if nd.badRemHook then
@@ -1787,66 +1786,289 @@ function nd.autoBreaker()
 		end);
 	end;
 end;
-function nd.padCodeFromInst(pad)
+function nd.padNumLen(pad)
+	if not pad then
+		return 5;
+	end;
+	local maxId = 0;
+	local count = 0;
+	for _, d in ipairs(pad:GetDescendants()) do
+		if d.Name == "Number" and d:IsA("BasePart") then
+			count += 1;
+			local id = tonumber(d:GetAttribute("ID"));
+			if id and id > maxId then
+				maxId = id;
+			end;
+		end;
+	end;
+	if maxId >= 10 or count >= 10 then
+		return 10;
+	end;
+	if maxId >= 5 or count >= 5 then
+		return 5;
+	end;
+	return math.clamp(maxId > 0 and maxId or count, 5, 10);
+end;
+function nd.digitsOnly(v)
+	local s = tostring(v or "");
+	return (s:gsub("%D", ""));
+end;
+function nd.cleanPadCode(v, len)
+	local s = nd.digitsOnly(v);
+	if s == "" then
+		return nil;
+	end;
+	len = tonumber(len) or #s;
+	if #s > len then
+		s = s:sub(#s - len + 1);
+	elseif #s < len then
+		return nil;
+	end;
+	return s;
+end;
+function nd.padCodeFromValue(v, len)
+	local s = nd.cleanPadCode(v, len);
+	if s then
+		return s;
+	end;
+	return nil;
+end;
+function nd.padCodeFromAttributes(inst, len)
+	if not inst then
+		return nil;
+	end;
+	local attrs = nil;
+	pcall(function()
+		attrs = inst:GetAttributes();
+	end);
+	if type(attrs) ~= "table" then
+		return nil;
+	end;
+	for k, v in pairs(attrs) do
+		local n = tostring(k or ""):lower();
+		if n:find("code", 1, true) or n:find("combination", 1, true) or n:find("password", 1, true) or n:find("padlock", 1, true) then
+			local s = nd.padCodeFromValue(v, len);
+			if s then
+				return s;
+			end;
+		end;
+	end;
+	return nil;
+end;
+function nd.padCodeFromHintArgs(a, b, c)
+	nd.padHints = nd.padHints or { seq = {}; seen = {}; last = nil; stamp = 0; };
+	if a == nil and b == nil then
+		nd.padHints.seq = {};
+		nd.padHints.seen = {};
+		nd.padHints.last = nil;
+		nd.padHints.stamp = os.clock();
+		return;
+	end;
+	local key = tostring(a) .. "|" .. tostring(b) .. "|" .. tostring(c);
+	if nd.padHints.seen[key] then
+		return;
+	end;
+	local digit = nil;
+	local bd = nd.digitsOnly(b);
+	local ad = nd.digitsOnly(a);
+	if #bd == 1 then
+		digit = bd;
+	elseif #bd > 1 and #bd <= 10 then
+		for i = 1, #bd do
+			nd.padHints.seq[#nd.padHints.seq + 1] = bd:sub(i, i);
+		end;
+		nd.padHints.last = table.concat(nd.padHints.seq);
+		nd.padHints.stamp = os.clock();
+		nd.padHints.seen[key] = true;
+		return;
+	elseif #ad == 1 and b == nil then
+		digit = ad;
+	end;
+	if digit then
+		nd.padHints.seq[#nd.padHints.seq + 1] = digit;
+		nd.padHints.last = table.concat(nd.padHints.seq);
+		nd.padHints.stamp = os.clock();
+		nd.padHints.seen[key] = true;
+	end;
+end;
+function nd.padCodeFromHints(len)
+	nd.padHints = nd.padHints or { seq = {}; seen = {}; last = nil; stamp = 0; };
+	len = tonumber(len) or 5;
+	if #nd.padHints.seq >= len then
+		local out = "";
+		for i = #nd.padHints.seq - len + 1, #nd.padHints.seq do
+			out ..= tostring(nd.padHints.seq[i] or "0");
+		end;
+		return nd.cleanPadCode(out, len);
+	end;
+	return nd.cleanPadCode(nd.padHints.last, len);
+end;
+function nd.padCodeFromHintGui(len)
+	len = tonumber(len) or 5;
+	local p = nd.lp and nd.lp();
+	local pg = p and p:FindFirstChildOfClass("PlayerGui");
+	if not pg then
+		return nil;
+	end;
+	local list = {};
+	for _, h in ipairs(pg:GetDescendants()) do
+		if h.Name == "Hints" then
+			for i, ch in ipairs(h:GetChildren()) do
+				if ch.Name == "Icon" or ch:FindFirstChild("TextLabel", true) then
+					local tl = ch:FindFirstChild("TextLabel", true);
+					local ds = tl and nd.digitsOnly(tl.Text);
+					if ds and #ds == 1 then
+						list[#list + 1] = {
+							d = ds;
+							o = tonumber(ch.LayoutOrder) or 0;
+							x = ch:IsA("GuiObject") and ch.AbsolutePosition.X or i;
+							i = i;
+						};
+					end;
+				end;
+			end;
+		end;
+	end;
+	if #list < len then
+		return nil;
+	end;
+	table.sort(list, function(a, b)
+		if a.o ~= b.o and a.o ~= 0 and b.o ~= 0 then
+			return a.o < b.o;
+		end;
+		if a.x ~= b.x then
+			return a.x < b.x;
+		end;
+		return a.i < b.i;
+	end);
+	local out = "";
+	for i = math.max(1, #list - len + 1), #list do
+		out ..= list[i].d;
+	end;
+	return nd.cleanPadCode(out, len);
+end;
+function nd.padCodeFromInst(pad, len)
 	if not pad then
 		return nil;
 	end;
-	for _, k in ipairs({ "Code", "code", "Combination", "combination", "Password", "password" }) do
+	len = tonumber(len) or nd.padNumLen(pad);
+	for _, k in ipairs({ "Code", "code", "Combination", "combination", "Password", "password", "PadlockCode", "padlockCode" }) do
 		local v = pad:GetAttribute(k);
-		if v ~= nil then
-			return tostring(v);
+		local s = nd.padCodeFromValue(v, len);
+		if s then
+			return s;
 		end;
 	end;
+	local got = nd.padCodeFromAttributes(pad, len);
+	if got then
+		return got;
+	end;
 	for _, d in ipairs(pad:GetDescendants()) do
-		local n = d.Name:lower();
-		if n:find("code") or n:find("combination") or n:find("password") then
+		local got2 = nd.padCodeFromAttributes(d, len);
+		if got2 then
+			return got2;
+		end;
+		local n = tostring(d.Name or ""):lower();
+		if n:find("code", 1, true) or n:find("combination", 1, true) or n:find("password", 1, true) then
 			if d:IsA("StringValue") or d:IsA("IntValue") or d:IsA("NumberValue") then
-				return tostring(d.Value);
-			end;
-			local av = d:GetAttribute("Code") or d:GetAttribute("Combination") or d:GetAttribute("Password");
-			if av ~= nil then
-				return tostring(av);
-			end;
-		end;
-	end;
-	local nums = {};
-	for _, d in ipairs(pad:GetDescendants()) do
-		if d.Name == "Number" and d:IsA("BasePart") then
-			local id = tonumber(d:GetAttribute("ID"));
-			local ui2 = d:FindFirstChild("NumberUI");
-			local tl = ui2 and ui2:FindFirstChild("TextLabel", true);
-			if id and tl and tl:IsA("TextLabel") then
-				nums[id] = tostring(tl.Text or "0");
+				local s = nd.padCodeFromValue(d.Value, len);
+				if s then
+					return s;
+				end;
 			end;
 		end;
 	end;
-	local out = "";
-	for i = 1, 5 do
-		out ..= nums[i] or "0";
+	return nd.padCodeFromHints(len) or nd.padCodeFromHintGui(len);
+end;
+function nd.setPadNum(part, digit)
+	if not (part and part.Parent) then
+		return false;
 	end;
-	return #out == 5 and out or nil;
+	digit = tonumber(digit) or 0;
+	local ui = part:FindFirstChild("NumberUI");
+	local tl = ui and ui:FindFirstChild("TextLabel", true);
+	if tl and tl:IsA("TextLabel") then
+		tl.Text = tostring(digit);
+	end;
+	for _, ch in ipairs(part:GetChildren()) do
+		if ch:IsA("BasePart") and ch:FindFirstChild("NumberUI") then
+			local off = 1;
+			if ch.Name == "NumberTop" then
+				off = 2;
+			elseif ch.Name == "NumberBelow" then
+				off = -1;
+			elseif ch.Name == "NumberBottom" then
+				off = -2;
+			end;
+			local dui = ch:FindFirstChild("NumberUI");
+			local dtl = dui and dui:FindFirstChild("TextLabel", true);
+			if dtl and dtl:IsA("TextLabel") then
+				dtl.Text = tostring((digit + off) % 10);
+			end;
+		end;
+	end;
+	return true;
+end;
+function nd.applyPadCode(pad, code)
+	if not (pad and code) then
+		return false;
+	end;
+	local len = nd.padNumLen(pad);
+	code = nd.cleanPadCode(code, len);
+	if not code then
+		return false;
+	end;
+	for i = 1, #code do
+		local want = code:sub(i, i);
+		for _, d in ipairs(pad:GetDescendants()) do
+			if d.Name == "Number" and d:IsA("BasePart") and tonumber(d:GetAttribute("ID")) == i then
+				nd.setPadNum(d, want);
+			end;
+		end;
+	end;
+	return true;
+end;
+function nd.firePadCode(code)
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local pl = remf and remf:FindFirstChild("PL");
+	if not (pl and code) then
+		return false;
+	end;
+	local ok = pcall(function()
+		pl:FireServer(code);
+	end);
+	return ok;
 end;
 function nd.autoPadlock()
 	local pad = workspace:FindFirstChild("Padlock", true);
 	if not pad then
 		return;
 	end;
-	local code = nd.padCodeFromInst(pad);
+	local len = nd.padNumLen(pad);
+	local code = nd.padCodeFromHints(len) or nd.padCodeFromHintGui(len) or nd.padCodeFromInst(pad, len);
+	code = nd.cleanPadCode(code, len);
 	if not code then
 		return;
 	end;
-	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
-	local pl = remf and remf:FindFirstChild("PL");
-	if pl then
-		pcall(function()
-			pl:FireServer(code);
-		end);
-	end;
+	nd.applyPadCode(pad, code);
+	nd.firePadCode(code);
+	nd.Delay(0.15, function()
+		nd.applyPadCode(pad, code);
+		nd.firePadCode(code);
+	end);
 end;
 function nd.wireMinis()
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	if not remf then
 		return;
+	end;
+	local ph = remf:FindFirstChild("PadlockHint");
+	if ph and not nd.padHintConn then
+		nd.replaceConn("padHintConn", ph.OnClientEvent:Connect(function(a, b, c)
+			nd.padCodeFromHintArgs(a, b, c);
+			nd.Delay(0.1, nd.autoPadlock);
+			nd.Delay(0.5, nd.autoPadlock);
+		end));
 	end;
 	local ch = remf:FindFirstChild("ClutchHeartbeat");
 	if ch and not nd.hbConn then
@@ -1886,7 +2108,6 @@ nd.noModNames = {
 	rush = true;
 	ambush = true;
 	eyes = true;
-	figure = true;
 	dread = true;
 	seek = true;
 	halt = true;
@@ -1942,6 +2163,9 @@ function nd.moduleFallback(ms, name)
 	end;
 	nd.noopMods[ms] = true;
 	name = tostring(name or (ms and ms.Name) or ""):lower();
+	if nd.figureKeepNames and nd.figureKeepNames[name] then
+		return;
+	end;
 	if name:find("lookman") then
 		nd.forceLookDown();
 	end;
@@ -1990,6 +2214,9 @@ function nd.noopModule(ms)
 		return;
 	end;
 	local n = ms.Name:lower();
+	if nd.figureKeepNames and nd.figureKeepNames[n] then
+		return;
+	end;
 	if not nd.noModNames[n] then
 		return;
 	end;
@@ -2064,10 +2291,24 @@ nd.delPart = {
 	"screech";
 	"gloombat";
 };
+function nd.isFigureInst(obj)
+	local cur = obj;
+	while cur and cur ~= game do
+		local n = tostring(cur.Name or ""):lower();
+		if n:find("figure") then
+			return true;
+		end;
+		cur = cur.Parent;
+	end;
+	return false;
+end;
 function nd.delDanger()
 	local cr = workspace:FindFirstChild("CurrentRooms") or workspace;
 	for _, d in ipairs(cr:GetDescendants()) do
 		local n = d.Name:lower();
+		if nd.isFigureInst(d) then
+			continue;
+		end;
 		if nd.delExact[n] then
 			pcall(function()
 				d:Destroy();
@@ -2112,10 +2353,6 @@ end;
 
 nd.extraNoopNames = {
 	"elevator1",
-	"figureend",
-	"figurehotelchase",
-	"figurehotelend",
-	"figurehotelfire",
 	"seekintrofools",
 	"seekintrohotel",
 	"achievementprogress",
@@ -2139,7 +2376,6 @@ nd.extraNoopNames = {
 	"dread",
 	"toolanimate",
 	"usepowerup",
-	"figurerig",
 	"glitchcube",
 	"hallucination",
 	"playercharacter",
@@ -2153,8 +2389,6 @@ for _, n in ipairs({
 	"dread",
 	"screech",
 	"screechretro",
-	"figurerig",
-	"figurelibrary",
 	"seekmoving",
 	"seekeye",
 	"glitchcube",
@@ -2181,6 +2415,15 @@ for _, n in ipairs({
 }) do
 	table.insert(nd.delPart, n);
 end;
+nd.figureKeepNames = {
+	figure = true;
+	figureend = true;
+	figurehotelchase = true;
+	figurehotelend = true;
+	figurehotelfire = true;
+	figurerig = true;
+	figurelibrary = true;
+};
 nd.blockRemoteNames = {
 	a90 = true;
 	screech = true;
@@ -2201,11 +2444,6 @@ nd.blockRemoteNames = {
 	sendrunnernodes = true;
 	stupideffects = true;
 	elevator1 = true;
-	figure = true;
-	figureend = true;
-	figurehotelchase = true;
-	figurehotelend = true;
-	figurehotelfire = true;
 	seekintrofools = true;
 	seekintrohotel = true;
 	ambush = true;
@@ -2213,6 +2451,13 @@ nd.blockRemoteNames = {
 	eyes = true;
 	seek = true;
 };
+for n in pairs(nd.figureKeepNames) do
+	nd.noModNames[n] = nil;
+	nd.delExact[n] = nil;
+	nd.badExact[n] = nil;
+	nd.blockRemoteNames[n] = nil;
+end;
+
 function nd.restoreDisabledConns()
 	local list = nd.disabledConns;
 	if type(list) ~= "table" then
@@ -2468,12 +2713,14 @@ function nd.hookGcFuncs()
 		"lookman",
 		"a90",
 		"spiderjumpscare",
-		"figurehotel",
 		"seekintro",
 		"elevator1",
 		"camshake",
 		"camlockhead",
-		"climbladder"
+		"climbladder",
+		"minigamehandler",
+		"padlock",
+		"padlockhard"
 	};
 	local ok, list = pcall(getgc, false);
 	if not (ok and type(list) == "table") then
@@ -2488,6 +2735,9 @@ function nd.hookGcFuncs()
 				end;
 			end);
 			local src = tostring(info and (info.source or info.short_src) or ""):lower();
+			if src:find("figure", 1, true) then
+				continue;
+			end;
 			local hit = false;
 			for _, p in ipairs(pats) do
 				if src:find(p, 1, true) then
@@ -2516,6 +2766,9 @@ function nd.hardDangerOne(d)
 		return;
 	end;
 	local n = tostring(d.Name or ""):lower();
+	if nd.isFigureInst(d) then
+		return;
+	end;
 	if nd.delExact[n] or n:find("screech") or n:find("dread") or n:find("seekeye") or n:find("glitchcube") or n:find("hallucination") or n:find("jumpscare") then
 		pcall(function()
 			d:Destroy();
