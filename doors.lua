@@ -321,11 +321,6 @@ nd.otherCmds = {
 	},
 	{
 		"ipp"
-	},
-	{
-		"psize",
-		"hidden",
-		"15"
 	}
 };
 function nd.safeCmdRun(args)
@@ -1616,18 +1611,19 @@ function nd.muteFx()
 	nd.a90UiMute();
 	nd.spiderUiMute();
 end;
+nd.promptPatchEnabled = false;
 function nd.patchPrompt(pp)
+	if not nd.promptPatchEnabled then
+		return;
+	end;
 	if not (pp and pp:IsA("ProximityPrompt")) then
 		return;
 	end;
 	nd.trySet(pp, "RequiresLineOfSight", false);
-	nd.trySet(pp, "MaxActivationDistance", 1000000000);
 	nd.trySet(pp, "HoldDuration", 0);
-	nd.trySet(pp, "Exclusivity", Enum.ProximityPromptExclusivity.AlwaysShow);
-	nd.trySet(pp, "Enabled", true);
 end;
 function nd.patchPromptRoot(root)
-	if not root then
+	if not nd.promptPatchEnabled or not root then
 		return;
 	end;
 	for _, d in ipairs(root:GetDescendants()) do
@@ -1635,20 +1631,14 @@ function nd.patchPromptRoot(root)
 	end;
 end;
 function nd.promptExtreme()
-	nd.patchPromptRoot(workspace);
-	local g = nd.pg();
-	if g then
-		nd.patchPromptRoot(g);
+	nd.promptPatchEnabled = false;
+	if nd.promptConn then
+		nd.disconnectConn(nd.promptConn);
+		nd.promptConn = nil;
 	end;
-	if not nd.promptConn then
-		nd.replaceConn("promptConn", workspace.DescendantAdded:Connect(function(d)
-			nd.patchPrompt(d);
-		end));
-	end;
-	if g and not nd.pgPromptConn then
-		nd.replaceConn("pgPromptConn", g.DescendantAdded:Connect(function(d)
-			nd.patchPrompt(d);
-		end));
+	if nd.pgPromptConn then
+		nd.disconnectConn(nd.pgPromptConn);
+		nd.pgPromptConn = nil;
 	end;
 end;
 nd.badExact = {
