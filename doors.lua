@@ -1502,11 +1502,6 @@ function nd.patchCtx()
 			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false);
 			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false);
 		end);
-		pcall(function()
-			if ctx.hum.MaxHealth > 0 and ctx.hum.Health < ctx.hum.MaxHealth then
-				ctx.hum.Health = ctx.hum.MaxHealth;
-			end;
-		end);
 	end;
 end;
 function nd.patchHum(ch)
@@ -1534,11 +1529,82 @@ function nd.patchHum(ch)
 			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false);
 			hum:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false);
 		end);
+	end;
+end;
+nd.lookDownHold = nd.lookDownHold or 0;
+nd.lookDownPart = nd.lookDownPart or nil;
+nd.lookScanAt = nd.lookScanAt or 0;
+function nd.getLookDir()
+	local cam = workspace.CurrentCamera;
+	local look = cam and cam.CFrame.LookVector or Vector3.new(0, 0, -1);
+	local flat = Vector3.new(look.X, 0, look.Z);
+	if flat.Magnitude < 0.05 then
+		flat = Vector3.new(0, 0, -1);
+	end;
+	return (flat.Unit * 0.18 + Vector3.new(0, -1, 0)).Unit;
+end;
+function nd.forceLookDown(ctx)
+	ctx = ctx or nd.getCtx();
+	local dir = nd.getLookDir();
+	if type(ctx) == "table" then
+		if type(ctx.targetCameraTowardsDirection) == "function" then
+			pcall(ctx.targetCameraTowardsDirection, dir);
+		end;
+		local ch = ctx.char or nd.gch();
+		local root = ch and (ch.PrimaryPart or ch:FindFirstChild("HumanoidRootPart"));
+		local rx, ry = CFrame.new(Vector3.new(), dir):ToOrientation();
+		ctx.camlockHead = true;
+		ctx.camlock = {
+			y = math.deg(rx),
+			x = math.deg(ry),
+			z = 0,
+			last = tick() + 0.6,
+			pos = root and root.Position or Vector3.new()
+		};
+		ctx.ay = -88;
+		ctx.ay_t = -88;
+		ctx.az = 0;
+		ctx.az_t = 0;
+		ctx.stopcam = false;
+		ctx.freemouse = false;
+		ctx.deathtick = tick() + 999999;
+		if type(ctx.update) == "function" then
+			pcall(ctx.update);
+		end;
+	end;
+	local cam = workspace.CurrentCamera;
+	if cam then
 		pcall(function()
-			if hum.MaxHealth > 0 and hum.Health < hum.MaxHealth then
-				hum.Health = hum.MaxHealth;
-			end;
+			cam.CFrame = CFrame.lookAt(cam.CFrame.Position, cam.CFrame.Position + dir);
 		end);
+	end;
+	nd.lookDownHold = tick() + 0.8;
+end;
+function nd.findLookman()
+	local root = workspace:FindFirstChild("CurrentRooms") or workspace;
+	for _, d in ipairs(root:GetDescendants()) do
+		local n = tostring(d.Name or ""):lower();
+		if n:find("lookman") or n:find("look man") or n:find("look_man") then
+			return d;
+		end;
+	end;
+	return nil;
+end;
+function nd.lookmanTick()
+	if nd.lookDownHold > tick() then
+		nd.forceLookDown();
+		return;
+	end;
+	if nd.lookScanAt > tick() then
+		return;
+	end;
+	nd.lookScanAt = tick() + 0.35;
+	local hit = nd.findLookman();
+	if hit then
+		nd.lookDownPart = hit;
+		nd.forceLookDown();
+	else
+		nd.lookDownPart = nil;
 	end;
 end;
 function nd.silenceSound(s)
@@ -1646,6 +1712,8 @@ nd.badExact = {
 	seekslop = true;
 	screech = true;
 	dread = true;
+	lookman = true;
+	lookmanmodule = true;
 	spiderjumpscare = true;
 	jumpscare = true;
 	damage = true;
@@ -1676,6 +1744,10 @@ function nd.hookBadRemotes()
 			local m = typeof(raw) == "string" and raw:lower() or "";
 			if not checkcaller() and typeof(self) == "Instance" and (m == "fireserver" or m == "invokeserver") then
 				local n = self.Name:lower();
+				if n:find("lookman") or n:find("look_man") or n:find("look man") then
+					nd.forceLookDown();
+					return nil;
+				end;
 				if n == "clutchheartbeat" then
 					local a = { ... };
 					if a[2] == false then
@@ -1826,6 +1898,8 @@ nd.noModNames = {
 	void = true;
 	a60 = true;
 	a120 = true;
+	lookman = true;
+	lookmanmodule = true;
 	minigamehandler = true;
 	padlock = true;
 	padlockhard = true;
@@ -1854,6 +1928,8 @@ function nd.noopStub(name)
 					rem:FireServer("didnt");
 				end);
 			end;
+		elseif name == "lookman" or name:find("lookman") then
+			nd.forceLookDown();
 		end;
 		return nil;
 	end;
@@ -1866,6 +1942,9 @@ function nd.moduleFallback(ms, name)
 	end;
 	nd.noopMods[ms] = true;
 	name = tostring(name or (ms and ms.Name) or ""):lower();
+	if name:find("lookman") then
+		nd.forceLookDown();
+	end;
 	nd.patchCtx();
 	nd.muteFx();
 	nd.hideGuiHard();
@@ -2019,6 +2098,7 @@ function nd.extraLoop()
 			local c = nd.gch();
 			nd.patchHum(c);
 			nd.patchCtx();
+			nd.lookmanTick();
 			nd.muteFx();
 		end;
 		if slow >= 1 then
@@ -2049,6 +2129,8 @@ nd.extraNoopNames = {
 	"pingremote",
 	"pointsnotification",
 	"sendrunnernodes",
+	"lookman",
+	"lookmanmodule",
 	"stopseekmusic",
 	"stupideffects",
 	"vignette",
@@ -2103,6 +2185,8 @@ nd.blockRemoteNames = {
 	a90 = true;
 	screech = true;
 	dread = true;
+	lookman = true;
+	lookmanmodule = true;
 	spiderjumpscare = true;
 	camshake = true;
 	camlockhead = true;
@@ -2381,6 +2465,7 @@ function nd.hookGcFuncs()
 		"jumpscare",
 		"screech",
 		"dread",
+		"lookman",
 		"a90",
 		"spiderjumpscare",
 		"figurehotel",
