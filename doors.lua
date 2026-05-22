@@ -2338,12 +2338,12 @@ function nd.hookMoreMods()
 	nd.scanModRoot(__lt.cm("ReplicatedStorage", "FindFirstChild", "ModulesClient"));
 end;
 nd.delExact = {
-	rushmoving = true;
-	ambushmoving = true;
-	rushnew = true;
-	backdoorrush = true;
-	a60 = true;
-	a120 = true;
+	--rushmoving = true;
+	--ambushmoving = true;
+	--rushnew = true;
+	--backdoorrush = true;
+	--a60 = true;
+	--a120 = true;
 	snare = true;
 	giggle = true;
 	surge = true;
