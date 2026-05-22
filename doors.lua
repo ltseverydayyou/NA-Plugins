@@ -1598,7 +1598,7 @@ function nd.lookmanTick()
 	if nd.lookScanAt > tick() then
 		return;
 	end;
-	nd.lookScanAt = tick() + 0.35;
+	nd.lookScanAt = tick() + 2;
 	local hit = nd.findLookman();
 	if hit then
 		nd.lookDownPart = hit;
@@ -1620,6 +1620,7 @@ function nd.silenceSound(s)
 	end;
 end;
 function nd.muteFx()
+	local now = os.clock();
 	local light = __lt.cm("Lighting", "FindFirstChild", "OxygenCC");
 	if light then
 		nd.trySet(light, "Contrast", 0);
@@ -1640,12 +1641,16 @@ function nd.muteFx()
 			nd.trySet(eq, "LowGain", 0);
 			nd.trySet(eq, "Enabled", false);
 		end;
-		for _, d in ipairs(main:GetDescendants()) do
-			nd.silenceSound(d);
+		if (nd.muteFxSoundAt or 0) <= now then
+			nd.muteFxSoundAt = now + 2;
+			for _, d in ipairs(main:GetDescendants()) do
+				nd.silenceSound(d);
+			end;
 		end;
 	end;
 	local cam = workspace.CurrentCamera;
-	if cam then
+	if cam and (nd.muteFxCamAt or 0) <= now then
+		nd.muteFxCamAt = now + 2;
 		for _, d in ipairs(cam:GetChildren()) do
 			if d.Name == "yea" or d.Name:lower():find("jumpscare") then
 				pcall(function()
@@ -1654,6 +1659,10 @@ function nd.muteFx()
 			end;
 		end;
 	end;
+	if (nd.muteFxUiAt or 0) > now then
+		return;
+	end;
+	nd.muteFxUiAt = now + 2;
 	local u = nd.ui();
 	if not u then
 		return;
@@ -1786,28 +1795,67 @@ function nd.autoBreaker()
 		end);
 	end;
 end;
-function nd.padNumLen(pad)
-	if not pad then
-		return 5;
+function nd.getPadlock()
+	if nd.padInst and nd.padInst.Parent then
+		return nd.padInst;
 	end;
-	local maxId = 0;
-	local count = 0;
+	local p = workspace:FindFirstChild("Padlock", true);
+	nd.padInst = p;
+	return p;
+end;
+function nd.resetPadCache(pad)
+	if pad == nil or nd.padInst == pad then
+		nd.padNums = nil;
+		nd.padNumMap = nil;
+		nd.padLen = nil;
+	end;
+end;
+function nd.watchPad(pad)
+	if not pad or nd.padWatchRoot == pad then
+		return;
+	end;
+	nd.padWatchRoot = pad;
+	nd.replaceConn("padDescAdd", pad.DescendantAdded:Connect(function(d)
+		if d.Name == "Number" or d.Name == "NumberUI" or d:IsA("TextLabel") then
+			nd.resetPadCache(pad);
+		end;
+	end));
+	nd.replaceConn("padDescRem", pad.DescendantRemoving:Connect(function(d)
+		if d.Name == "Number" or d.Name == "NumberUI" or d:IsA("TextLabel") then
+			nd.resetPadCache(pad);
+		end;
+	end));
+end;
+function nd.getPadNums(pad)
+	pad = pad or nd.getPadlock();
+	if not pad then
+		return {};
+	end;
+	nd.watchPad(pad);
+	if nd.padInst == pad and type(nd.padNums) == "table" and #nd.padNums > 0 then
+		return nd.padNums;
+	end;
+	local nums = {};
+	local map = {};
 	for _, d in ipairs(pad:GetDescendants()) do
 		if d.Name == "Number" and d:IsA("BasePart") then
-			count += 1;
-			local id = tonumber(d:GetAttribute("ID"));
-			if id and id > maxId then
-				maxId = id;
-			end;
+			local id = tonumber(d:GetAttribute("ID")) or (#nums + 1);
+			nums[#nums + 1] = d;
+			map[id] = d;
 		end;
 	end;
-	if maxId >= 10 or count >= 10 then
-		return 10;
-	end;
-	if maxId >= 5 or count >= 5 then
-		return 5;
-	end;
-	return math.clamp(maxId > 0 and maxId or count, 5, 10);
+	table.sort(nums, function(a, b)
+		return (tonumber(a:GetAttribute("ID")) or 999) < (tonumber(b:GetAttribute("ID")) or 999);
+	end);
+	nd.padInst = pad;
+	nd.padNums = nums;
+	nd.padNumMap = map;
+	nd.padLen = #nums >= 10 and 10 or 5;
+	return nums;
+end;
+function nd.padNumLen(pad)
+	nd.getPadNums(pad);
+	return nd.padLen or 5;
 end;
 function nd.digitsOnly(v)
 	local s = tostring(v or "");
@@ -1827,11 +1875,7 @@ function nd.cleanPadCode(v, len)
 	return s;
 end;
 function nd.padCodeFromValue(v, len)
-	local s = nd.cleanPadCode(v, len);
-	if s then
-		return s;
-	end;
-	return nil;
+	return nd.cleanPadCode(v, len);
 end;
 function nd.padCodeFromAttributes(inst, len)
 	if not inst then
@@ -1847,13 +1891,31 @@ function nd.padCodeFromAttributes(inst, len)
 	for k, v in pairs(attrs) do
 		local n = tostring(k or ""):lower();
 		if n:find("code", 1, true) or n:find("combination", 1, true) or n:find("password", 1, true) or n:find("padlock", 1, true) then
-			local s = nd.padCodeFromValue(v, len);
-			if s then
-				return s;
+			local got = nd.padCodeFromValue(v, len);
+			if got then
+				return got;
 			end;
 		end;
 	end;
 	return nil;
+end;
+function nd.padAddDigits(raw, key)
+	local ds = nd.digitsOnly(raw);
+	if ds == "" then
+		return false;
+	end;
+	nd.padHints = nd.padHints or { seq = {}; seen = {}; last = nil; stamp = 0; };
+	key = tostring(key or raw);
+	if nd.padHints.seen[key] then
+		return false;
+	end;
+	nd.padHints.seen[key] = true;
+	for i = 1, #ds do
+		nd.padHints.seq[#nd.padHints.seq + 1] = ds:sub(i, i);
+	end;
+	nd.padHints.last = table.concat(nd.padHints.seq);
+	nd.padHints.stamp = os.clock();
+	return true;
 end;
 function nd.padCodeFromHintArgs(a, b, c)
 	nd.padHints = nd.padHints or { seq = {}; seen = {}; last = nil; stamp = 0; };
@@ -1865,30 +1927,20 @@ function nd.padCodeFromHintArgs(a, b, c)
 		return;
 	end;
 	local key = tostring(a) .. "|" .. tostring(b) .. "|" .. tostring(c);
-	if nd.padHints.seen[key] then
-		return;
-	end;
-	local digit = nil;
-	local bd = nd.digitsOnly(b);
-	local ad = nd.digitsOnly(a);
-	if #bd == 1 then
-		digit = bd;
-	elseif #bd > 1 and #bd <= 10 then
-		for i = 1, #bd do
-			nd.padHints.seq[#nd.padHints.seq + 1] = bd:sub(i, i);
+	if type(b) == "table" then
+		for _, v in pairs(b) do
+			nd.padAddDigits(v, key .. "|" .. tostring(v));
 		end;
-		nd.padHints.last = table.concat(nd.padHints.seq);
-		nd.padHints.stamp = os.clock();
-		nd.padHints.seen[key] = true;
 		return;
-	elseif #ad == 1 and b == nil then
-		digit = ad;
 	end;
-	if digit then
-		nd.padHints.seq[#nd.padHints.seq + 1] = digit;
-		nd.padHints.last = table.concat(nd.padHints.seq);
-		nd.padHints.stamp = os.clock();
-		nd.padHints.seen[key] = true;
+	local bd = nd.digitsOnly(b);
+	if bd ~= "" then
+		nd.padAddDigits(bd, key);
+		return;
+	end;
+	local ad = nd.digitsOnly(a);
+	if ad ~= "" and (b == nil or tostring(b) == "") then
+		nd.padAddDigits(ad, key);
 	end;
 end;
 function nd.padCodeFromHints(len)
@@ -1914,16 +1966,18 @@ function nd.padCodeFromHintGui(len)
 	for _, h in ipairs(pg:GetDescendants()) do
 		if h.Name == "Hints" then
 			for i, ch in ipairs(h:GetChildren()) do
-				if ch.Name == "Icon" or ch:FindFirstChild("TextLabel", true) then
+				if ch.Name == "Icon" then
 					local tl = ch:FindFirstChild("TextLabel", true);
 					local ds = tl and nd.digitsOnly(tl.Text);
-					if ds and #ds == 1 then
-						list[#list + 1] = {
-							d = ds;
-							o = tonumber(ch.LayoutOrder) or 0;
-							x = ch:IsA("GuiObject") and ch.AbsolutePosition.X or i;
-							i = i;
-						};
+					if ds and #ds >= 1 then
+						for j = 1, #ds do
+							list[#list + 1] = {
+								d = ds:sub(j, j),
+								o = tonumber(ch.LayoutOrder) or 0,
+								x = ch:IsA("GuiObject") and ch.AbsolutePosition.X or i,
+								i = i * 100 + j
+							};
+						end;
 					end;
 				end;
 			end;
@@ -1953,32 +2007,31 @@ function nd.padCodeFromInst(pad, len)
 	end;
 	len = tonumber(len) or nd.padNumLen(pad);
 	for _, k in ipairs({ "Code", "code", "Combination", "combination", "Password", "password", "PadlockCode", "padlockCode" }) do
-		local v = pad:GetAttribute(k);
-		local s = nd.padCodeFromValue(v, len);
-		if s then
-			return s;
+		local got = nd.padCodeFromValue(pad:GetAttribute(k), len);
+		if got then
+			return got;
 		end;
 	end;
-	local got = nd.padCodeFromAttributes(pad, len);
-	if got then
-		return got;
+	local got2 = nd.padCodeFromAttributes(pad, len);
+	if got2 then
+		return got2;
 	end;
 	for _, d in ipairs(pad:GetDescendants()) do
-		local got2 = nd.padCodeFromAttributes(d, len);
-		if got2 then
-			return got2;
+		local got3 = nd.padCodeFromAttributes(d, len);
+		if got3 then
+			return got3;
 		end;
 		local n = tostring(d.Name or ""):lower();
 		if n:find("code", 1, true) or n:find("combination", 1, true) or n:find("password", 1, true) then
 			if d:IsA("StringValue") or d:IsA("IntValue") or d:IsA("NumberValue") then
-				local s = nd.padCodeFromValue(d.Value, len);
-				if s then
-					return s;
+				local got4 = nd.padCodeFromValue(d.Value, len);
+				if got4 then
+					return got4;
 				end;
 			end;
 		end;
 	end;
-	return nd.padCodeFromHints(len) or nd.padCodeFromHintGui(len);
+	return nil;
 end;
 function nd.setPadNum(part, digit)
 	if not (part and part.Parent) then
@@ -2018,12 +2071,11 @@ function nd.applyPadCode(pad, code)
 	if not code then
 		return false;
 	end;
+	local nums = nd.getPadNums(pad);
 	for i = 1, #code do
-		local want = code:sub(i, i);
-		for _, d in ipairs(pad:GetDescendants()) do
-			if d.Name == "Number" and d:IsA("BasePart") and tonumber(d:GetAttribute("ID")) == i then
-				nd.setPadNum(d, want);
-			end;
+		local part = nd.padNumMap and nd.padNumMap[i] or nums[i];
+		if part then
+			nd.setPadNum(part, code:sub(i, i));
 		end;
 	end;
 	return true;
@@ -2034,27 +2086,37 @@ function nd.firePadCode(code)
 	if not (pl and code) then
 		return false;
 	end;
-	local ok = pcall(function()
+	return pcall(function()
 		pl:FireServer(code);
 	end);
-	return ok;
+end;
+function nd.findPadCode(pad)
+	local len = nd.padNumLen(pad);
+	local code = nd.padCodeFromHints(len) or nd.padCodeFromHintGui(len) or nd.padCodeFromInst(pad, len);
+	return nd.cleanPadCode(code, len), len;
 end;
 function nd.autoPadlock()
-	local pad = workspace:FindFirstChild("Padlock", true);
+	local pad = nd.getPadlock();
 	if not pad then
 		return;
 	end;
-	local len = nd.padNumLen(pad);
-	local code = nd.padCodeFromHints(len) or nd.padCodeFromHintGui(len) or nd.padCodeFromInst(pad, len);
-	code = nd.cleanPadCode(code, len);
+	local code = nd.findPadCode(pad);
 	if not code then
 		return;
 	end;
 	nd.applyPadCode(pad, code);
 	nd.firePadCode(code);
-	nd.Delay(0.15, function()
-		nd.applyPadCode(pad, code);
-		nd.firePadCode(code);
+	nd.Delay(0.12, function()
+		if pad and pad.Parent then
+			nd.applyPadCode(pad, code);
+			nd.firePadCode(code);
+		end;
+	end);
+	nd.Delay(0.35, function()
+		if pad and pad.Parent then
+			nd.applyPadCode(pad, code);
+			nd.firePadCode(code);
+		end;
 	end);
 end;
 function nd.wireMinis()
@@ -2066,8 +2128,9 @@ function nd.wireMinis()
 	if ph and not nd.padHintConn then
 		nd.replaceConn("padHintConn", ph.OnClientEvent:Connect(function(a, b, c)
 			nd.padCodeFromHintArgs(a, b, c);
-			nd.Delay(0.1, nd.autoPadlock);
-			nd.Delay(0.5, nd.autoPadlock);
+			nd.Delay(0.05, nd.autoPadlock);
+			nd.Delay(0.2, nd.autoPadlock);
+			nd.Delay(0.6, nd.autoPadlock);
 		end));
 	end;
 	local ch = remf:FindFirstChild("ClutchHeartbeat");
@@ -2089,8 +2152,11 @@ function nd.wireMinis()
 				task.defer(nd.autoBreaker);
 				nd.Delay(0.2, nd.autoBreaker);
 			elseif k:find("padlock") then
-				nd.Delay(0.2, nd.autoPadlock);
-				nd.Delay(0.8, nd.autoPadlock);
+				nd.resetPadCache();
+				nd.Delay(0.05, nd.autoPadlock);
+				nd.Delay(0.25, nd.autoPadlock);
+				nd.Delay(0.75, nd.autoPadlock);
+				nd.Delay(1.5, nd.autoPadlock);
 			end;
 		end));
 	end;
@@ -2122,8 +2188,6 @@ nd.noModNames = {
 	lookman = true;
 	lookmanmodule = true;
 	minigamehandler = true;
-	padlock = true;
-	padlockhard = true;
 };
 function nd.noopStub(name)
 	return function(...)
@@ -2244,31 +2308,34 @@ function nd.noopModule(ms)
 		end;
 	end;
 end;
+function nd.scanModRoot(root)
+	if not root then
+		return;
+	end;
+	nd.modScannedRoots = nd.modScannedRoots or setmetatable({}, { __mode = "k" });
+	if nd.modScannedRoots[root] then
+		return;
+	end;
+	nd.modScannedRoots[root] = true;
+	for _, d in ipairs(root:GetDescendants()) do
+		nd.noopModule(d);
+	end;
+	nd.modWatchId = (nd.modWatchId or 0) + 1;
+	local key = "modWatch" .. tostring(nd.modWatchId);
+	nd.replaceConn(key, root.DescendantAdded:Connect(function(d)
+		task.defer(nd.noopModule, d);
+	end));
+end;
 function nd.hookMoreMods()
-	local mg = nd.getMainGame();
-	if mg then
-		for _, d in ipairs(mg:GetDescendants()) do
-			nd.noopModule(d);
-		end;
+	local now = os.clock();
+	if (nd.modScanAt or 0) > now then
+		return;
 	end;
-	local m = nd.getMods();
-	if m then
-		for _, d in ipairs(m:GetDescendants()) do
-			nd.noopModule(d);
-		end;
-	end;
-	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
-	if fr then
-		for _, d in ipairs(fr:GetDescendants()) do
-			nd.noopModule(d);
-		end;
-	end;
-	local mc = __lt.cm("ReplicatedStorage", "FindFirstChild", "ModulesClient");
-	if mc then
-		for _, d in ipairs(mc:GetDescendants()) do
-			nd.noopModule(d);
-		end;
-	end;
+	nd.modScanAt = now + 8;
+	nd.scanModRoot(nd.getMainGame());
+	nd.scanModRoot(nd.getMods());
+	nd.scanModRoot(__lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated"));
+	nd.scanModRoot(__lt.cm("ReplicatedStorage", "FindFirstChild", "ModulesClient"));
 end;
 nd.delExact = {
 	rushmoving = true;
@@ -2334,19 +2401,18 @@ function nd.extraLoop()
 	nd.replaceConn("extraConn", nd.rs.Heartbeat:Connect(function(dt)
 		acc += tonumber(dt) or 0;
 		slow += tonumber(dt) or 0;
-		if acc >= 0.12 then
+		if acc >= 0.2 then
 			acc = 0;
 			local c = nd.gch();
 			nd.patchHum(c);
 			nd.patchCtx();
 			nd.lookmanTick();
-			nd.muteFx();
 		end;
-		if slow >= 1 then
+		if slow >= 6 then
 			slow = 0;
 			nd.promptExtreme();
-			nd.hookMoreMods();
-			nd.delDanger();
+			nd.muteRemoteRoots();
+			nd.hardDangerSweep();
 		end;
 	end));
 end;
@@ -2534,30 +2600,26 @@ function nd.muteRemote(r)
 	end;
 	nd.muteSignal(r.OnClientEvent);
 end;
+function nd.watchRemoteRoot(root, key)
+	if not root then
+		return;
+	end;
+	nd.remoteSeenRoots = nd.remoteSeenRoots or setmetatable({}, { __mode = "k" });
+	if nd.remoteSeenRoots[root] then
+		return;
+	end;
+	nd.remoteSeenRoots[root] = true;
+	for _, r in ipairs(root:GetDescendants()) do
+		nd.muteRemote(r);
+	end;
+	nd.replaceConn(key, root.DescendantAdded:Connect(function(r)
+		task.defer(nd.muteRemote, r);
+	end));
+end;
 function nd.muteRemoteRoots()
-	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
-	if remf then
-		for _, r in ipairs(remf:GetDescendants()) do
-			nd.muteRemote(r);
-		end;
-		if not nd.remoteWatch2 then
-			nd.replaceConn("remoteWatch2", remf.DescendantAdded:Connect(function(r)
-				task.defer(nd.muteRemote, r);
-			end));
-		end;
-	end;
+	nd.watchRemoteRoot(__lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder"), "remoteWatch2");
 	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
-	local cr = fr and fr:FindFirstChild("ClientRemote");
-	if cr then
-		for _, r in ipairs(cr:GetDescendants()) do
-			nd.muteRemote(r);
-		end;
-		if not nd.frWatch2 then
-			nd.replaceConn("frWatch2", cr.DescendantAdded:Connect(function(r)
-				task.defer(nd.muteRemote, r);
-			end));
-		end;
-	end;
+	nd.watchRemoteRoot(fr and fr:FindFirstChild("ClientRemote"), "frWatch2");
 end;
 function nd.hardCtx()
 	nd.patchCtx();
@@ -2617,6 +2679,11 @@ function nd.hardChar()
 	end;
 end;
 function nd.hideGuiHard()
+	local now = os.clock();
+	if (nd.hideGuiAt or 0) > now then
+		return;
+	end;
+	nd.hideGuiAt = now + 2;
 	local u = nd.ui();
 	if not u then
 		return;
@@ -2657,6 +2724,11 @@ function nd.hideGuiHard()
 	end;
 end;
 function nd.clearCameraFx()
+	local now = os.clock();
+	if (nd.clearFxAt or 0) > now then
+		return;
+	end;
+	nd.clearFxAt = now + 2;
 	local cam = workspace.CurrentCamera;
 	if cam then
 		for _, d in ipairs(cam:GetDescendants()) do
@@ -2719,8 +2791,6 @@ function nd.hookGcFuncs()
 		"camlockhead",
 		"climbladder",
 		"minigamehandler",
-		"padlock",
-		"padlockhard"
 	};
 	local ok, list = pcall(getgc, false);
 	if not (ok and type(list) == "table") then
@@ -2781,7 +2851,27 @@ function nd.hardDangerOne(d)
 		nd.silenceSound(d);
 	end;
 end;
+function nd.watchDangerRoot(root, key)
+	if not root then
+		return;
+	end;
+	nd.dangerSeenRoots = nd.dangerSeenRoots or setmetatable({}, { __mode = "k" });
+	if not nd.dangerSeenRoots[root] then
+		nd.dangerSeenRoots[root] = true;
+		nd.replaceConn(key, root.DescendantAdded:Connect(function(d)
+			task.defer(nd.hardDangerOne, d);
+		end));
+	end;
+end;
 function nd.hardDangerSweep()
+	local now = os.clock();
+	nd.watchDangerRoot(workspace:FindFirstChild("CurrentRooms"), "dangerRoomsWatch");
+	nd.watchDangerRoot(workspace:FindFirstChild("Entities"), "dangerEntWatch");
+	nd.watchDangerRoot(workspace.CurrentCamera, "dangerCamWatch");
+	if (nd.dangerSweepAt or 0) > now then
+		return;
+	end;
+	nd.dangerSweepAt = now + 8;
 	nd.delDanger();
 	local roots = {
 		workspace:FindFirstChild("CurrentRooms"),
@@ -2804,19 +2894,26 @@ function nd.hardBypassLoop()
 		return;
 	end;
 	local fast = 0;
+	local mid = 0;
 	local slow = 0;
 	nd.replaceConn("hardConn", nd.rs.Heartbeat:Connect(function(dt)
 		dt = tonumber(dt) or 0;
 		fast += dt;
+		mid += dt;
 		slow += dt;
-		if fast >= 0.08 then
+		if fast >= 0.12 then
 			fast = 0;
 			nd.hardChar();
 			nd.hardCtx();
+			nd.lookmanTick();
+		end;
+		if mid >= 2 then
+			mid = 0;
+			nd.muteFx();
 			nd.hideGuiHard();
 			nd.clearCameraFx();
 		end;
-		if slow >= 0.75 then
+		if slow >= 8 then
 			slow = 0;
 			nd.muteRemoteRoots();
 			nd.hookMoreMods();
@@ -2828,7 +2925,7 @@ function nd.hardBypassLoop()
 		local acc = 0;
 		nd.replaceConn("gcScanConn", nd.rs.Heartbeat:Connect(function(dt)
 			acc += tonumber(dt) or 0;
-			if acc < 5 then
+			if acc < 10 then
 				return;
 			end;
 			acc = 0;
