@@ -1994,12 +1994,6 @@ function nd.hookMoreMods()
 	nd.scanModRoot(__lt.cm("ReplicatedStorage", "FindFirstChild", "ModulesClient"));
 end;
 nd.delExact = {
-	--rushmoving = true;
-	--ambushmoving = true;
-	--rushnew = true;
-	--backdoorrush = true;
-	--a60 = true;
-	--a120 = true;
 	snare = true;
 	giggle = true;
 	surge = true;
@@ -2111,15 +2105,10 @@ for _, n in ipairs({
 	"dread",
 	"screech",
 	"screechretro",
-	"seekmoving",
 	"seekeye",
 	"glitchcube",
 	"hallucination",
-	"rushmoving",
-	"ambushmoving",
 	"a90",
-	"a120",
-	"a60"
 }) do
 	nd.delExact[n] = true;
 end;
