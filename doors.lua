@@ -268,13 +268,14 @@ nd.promptTargets = {
 	"skulllock",
 	"wheel",
 	"starvial",
-	"starbottle"
+	"starbottle",
+	"livehintbook",
 };
 nd.promptFindTargets = {
 	"stardust",
 	"fuse",
 	"keyobtain",
-	"lotus"
+	"lotus",
 };
 nd.espExactTargets = {
 	"rushnew",
@@ -282,6 +283,7 @@ nd.espExactTargets = {
 	"a60",
 	"a120",
 	"backdoorrush",
+	"livehintbook",
 };
 nd.otherCmds = {
 	{
