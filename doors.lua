@@ -270,6 +270,7 @@ nd.promptTargets = {
 	"starvial",
 	"starbottle",
 	"livehintbook",
+	"libraryhintpaper",
 };
 nd.promptFindTargets = {
 	"stardust",
@@ -284,6 +285,7 @@ nd.espExactTargets = {
 	"a120",
 	"backdoorrush",
 	"livehintbook",
+	"libraryhintpaper",
 };
 nd.otherCmds = {
 	{
