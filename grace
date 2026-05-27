@@ -172,7 +172,7 @@ local blkNames = {
 	"mayhemcardselection",
 }
 local blkSet = {}
-for _, n in ipairs(blkNames) do
+for _, n in blkNames do
 	blkSet[n] = true
 end
 local wsBlkNames = {
@@ -182,7 +182,7 @@ local wsBlkNames = {
 	"rain",
 }
 local wsBlkSet = {}
-for _, n in ipairs(wsBlkNames) do
+for _, n in wsBlkNames do
 	wsBlkSet[n] = true
 end
 local zeroVector = Vector3.new()
@@ -219,11 +219,11 @@ graceRuntime.cleanup = function()
 		return
 	end
 	graceRuntime.alive = false
-	for _, conn in ipairs(graceRuntime.connections) do
+	for _, conn in graceRuntime.connections do
 		disconnectSignal(conn)
 	end
 	graceRuntime.connections = {}
-	for obj in pairs(graceRuntime.objects) do
+	for obj in graceRuntime.objects do
 		pcall(function()
 			obj:Destroy()
 		end)
@@ -247,7 +247,7 @@ local function doUiBlock()
 		return blkNames
 	end
 	local pg = lp:WaitForChild("PlayerGui")
-	for _, c in ipairs(pg:GetChildren()) do
+	for _, c in pg:GetChildren() do
 		local n = c.Name:lower()
 		if blkSet[n] then
 			c:Destroy()
@@ -276,7 +276,7 @@ local function doWorkspaceBlock()
 			end)
 		end
 	end
-	for _, inst in ipairs(workspace:GetDescendants()) do
+	for _, inst in workspace:GetDescendants() do
 		tryDestroy(inst)
 	end
 	wsConn = track(workspace.DescendantAdded:Connect(tryDestroy))
@@ -288,7 +288,7 @@ local function doSendKill()
 	end
 	sendDone = true
 	task.defer(function()
-		for _, inst in ipairs(__lt.cm("ReplicatedStorage", "QueryDescendants", "Instance")) do
+		for _, inst in __lt.cm("ReplicatedStorage", "QueryDescendants", "Instance") do
 			local n = inst.Name
 			if typeof(n) == "string" and (n:lower()):find("send") then
 				pcall(function()
@@ -323,7 +323,7 @@ local function bindJoeyContainer(container)
 	if not container then
 		return nil
 	end
-	for _, child in ipairs(container:GetChildren()) do
+	for _, child in container:GetChildren() do
 		clearJoey(child)
 	end
 	return track(container.ChildAdded:Connect(function(child)
@@ -362,7 +362,7 @@ local function doJoeyBlock()
 end
 local function doKillClientFallback()
 	local removed = 0
-	for _, inst in ipairs(__lt.cm("ReplicatedStorage", "GetDescendants")) do
+	for _, inst in __lt.cm("ReplicatedStorage", "GetDescendants") do
 		local name = inst.Name
 		if typeof(name) == "string" and name:lower() == "killclient" then
 			local isRemote = false
@@ -462,7 +462,7 @@ local function doDoorLoop()
 		if not cp then
 			return
 		end
-		for _, gui in ipairs(cp:GetChildren()) do
+		for _, gui in cp:GetChildren() do
 			handleGui(gui)
 		end
 		cpConn = track(cp.ChildAdded:Connect(handleGui))
@@ -586,7 +586,7 @@ local function addCon(list, conn)
 	return conn
 end
 local function clearCons(list)
-	for i, conn in ipairs(list) do
+	for i, conn in list do
 		disconnectSignal(conn)
 		list[i] = nil
 	end
@@ -664,7 +664,7 @@ local function makeMark(map, inst, text, col)
 	return bg
 end
 local function clearMarks(map)
-	for inst, mark in pairs(map) do
+	for inst, mark in map do
 		pcall(function()
 			mark:Destroy()
 		end)
@@ -701,7 +701,7 @@ local function doPrompt()
 		return "instant prompts already running"
 	end
 	gp.on = true
-	for _, inst in ipairs(workspace:GetDescendants()) do
+	for _, inst in workspace:GetDescendants() do
 		setupPrompt(inst)
 	end
 	addCon(gp.cons, workspace.DescendantAdded:Connect(function(inst)
@@ -712,7 +712,7 @@ end
 local function stopPrompt()
 	gp.on = false
 	clearCons(gp.cons)
-	for pr, old in pairs(gp.orig) do
+	for pr, old in gp.orig do
 		pcall(function()
 			if pr.Parent then
 				pr.HoldDuration = old.hold
@@ -802,7 +802,7 @@ local function doPit()
 	gpit.on = true
 	doVoid()
 	if CollectionService then
-		for _, inst in ipairs(CollectionService:GetTagged("Pit")) do
+		for _, inst in CollectionService:GetTagged("Pit") do
 			setupPit(inst)
 		end
 		addCon(gpit.cons, CollectionService:GetInstanceAddedSignal("Pit"):Connect(setupPit))
@@ -866,12 +866,12 @@ local function doESP()
 	end
 	gesp.on = true
 	if CollectionService then
-		for _, inst in ipairs(CollectionService:GetTagged("FlowerHead")) do
+		for _, inst in CollectionService:GetTagged("FlowerHead") do
 			setupEnt(inst)
 		end
 		addCon(gesp.cons, CollectionService:GetInstanceAddedSignal("FlowerHead"):Connect(setupEnt))
 	end
-	for _, inst in ipairs(workspace:GetDescendants()) do
+	for _, inst in workspace:GetDescendants() do
 		local ok, tgt = pcall(function()
 			return inst:GetAttribute("Target")
 		end)
@@ -926,7 +926,7 @@ local function doPlug(range)
 	end
 	gplug.on = true
 	if CollectionService then
-		for _, inst in ipairs(CollectionService:GetTagged("PickupPlug")) do
+		for _, inst in CollectionService:GetTagged("PickupPlug") do
 			setupPlug(inst)
 		end
 		addCon(gplug.cons, CollectionService:GetInstanceAddedSignal("PickupPlug"):Connect(setupPlug))
@@ -941,7 +941,7 @@ local function doPlug(range)
 		if not root then
 			return
 		end
-		for inst, touch in pairs(gplug.plugs) do
+		for inst, touch in gplug.plugs do
 			if not inst.Parent or not touch.Parent then
 				gplug.plugs[inst] = nil
 			elseif (touch.Position - root.Position).Magnitude <= gplug.range then
@@ -1005,7 +1005,7 @@ local function doLowFX()
 		return "low fx already running"
 	end
 	gfx.on = true
-	for _, inst in ipairs(game:GetDescendants()) do
+	for _, inst in game:GetDescendants() do
 		fxOne(inst)
 	end
 	addCon(gfx.cons, game.DescendantAdded:Connect(fxOne))
@@ -1014,7 +1014,7 @@ end
 local function stopLowFX()
 	gfx.on = false
 	clearCons(gfx.cons)
-	for inst, old in pairs(gfx.orig) do
+	for inst, old in gfx.orig do
 		pcall(function()
 			if old.Enabled ~= nil then
 				inst.Enabled = old.Enabled
@@ -1056,7 +1056,7 @@ local function doNoProps()
 	end)
 	local rooms = workspace:FindFirstChild("Rooms")
 	if rooms then
-		for _, room in ipairs(rooms:GetChildren()) do
+		for _, room in rooms:GetChildren() do
 			propsOne(room)
 		end
 		addCon(gprop.cons, rooms.ChildAdded:Connect(function(room)
@@ -1070,7 +1070,7 @@ end
 local function stopNoProps()
 	gprop.on = false
 	clearCons(gprop.cons)
-	for props, par in pairs(gprop.orig) do
+	for props, par in gprop.orig do
 		pcall(function()
 			if props.Parent and par then
 				props.Parent = par

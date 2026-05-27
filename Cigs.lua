@@ -138,7 +138,7 @@ local function resolveR6Shoulders()
 	if right and left then
 		return right, left
 	end
-	for _, inst in ipairs(Torso:GetChildren()) do
+	for _, inst in Torso:GetChildren() do
 		if inst:IsA("Weld") and (inst.Name == "lWeld" or inst.Name == "rWeld") then
 			NADestroy(inst)
 		end
@@ -526,7 +526,7 @@ end
 
 
 local function removeShoulderMotors()
-	for _, m in ipairs(Torso:GetChildren()) do
+	for _, m in Torso:GetChildren() do
 		if m:IsA("Motor6D") and (m.Name == "Left Shoulder" or m.Name == "Right Shoulder") then
 			NADestroy(m)
 		end
@@ -632,7 +632,7 @@ NARuntime.cleanup = function()
 	NADestroy(zigAnchor)
 	lWeld, rWeld = nil, nil
 	packClone, currentZig, currentWeld, zigWeld, zigAnchor = nil, nil, nil, nil, nil
-	for _, conn in ipairs(NARuntime.connections) do
+	for _, conn in NARuntime.connections do
 		NADisconnect(conn)
 	end
 	NARuntime.connections = {}

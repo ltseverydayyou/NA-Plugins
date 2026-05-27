@@ -168,7 +168,7 @@ function nd.cleanupRuntime()
 	if type(nd.restoreConns) == "function" then
 		pcall(nd.restoreConns);
 	end;
-	for _, key in ipairs({
+	for _, key in {
 		"roomConn",
 		"attrConn",
 		"crouchConn",
@@ -187,7 +187,7 @@ function nd.cleanupRuntime()
 		"frWatch2",
 		"gcScanConn",
 		"hconn",
-	}) do
+	} do
 		nd.disconnectConn(nd[key]);
 		nd[key] = nil;
 	end;
@@ -346,7 +346,7 @@ function nd.ensurePrompt(target, useFind)
 	end;
 	local interval = 0.1;
 	if NAjobs and type(NAjobs.jobs) == "table" then
-		for _, job in pairs(NAjobs.jobs) do
+		for _, job in NAjobs.jobs do
 			if job and job.kind == "prompt" and job.autoIntervalLinked == true and tonumber(job.interval) then
 				interval = tonumber(job.interval) or interval;
 				break;
@@ -369,7 +369,7 @@ function nd.ensureEsp(mode, term)
 	local t = (term or ""):lower();
 	local list = NAStuff and NAStuff.espNameLists and NAStuff.espNameLists[mode];
 	if list then
-		for _, v in ipairs(list) do
+		for _, v in list do
 			if v == t then
 				return;
 			end;
@@ -591,7 +591,7 @@ function nd.drop()
 	if hum then
 		hum:ChangeState(Enum.HumanoidStateType.Running);
 		local anim = hum:FindFirstChildOfClass("Animator") or hum;
-		for _, tr in ipairs(anim:GetPlayingAnimationTracks()) do
+		for _, tr in anim:GetPlayingAnimationTracks() do
 			local n = (tr.Name or ""):lower();
 			if n:find("climb") then
 				tr:Stop();
@@ -709,7 +709,7 @@ function nd.muteUiFrame(f)
 	else
 		ds = f:GetDescendants();
 	end;
-	for _, d in ipairs(ds) do
+	for _, d in ds do
 		if d:IsA("ImageLabel") or d:IsA("ImageButton") then
 			d.ImageTransparency = 1;
 			d.Visible = false;
@@ -892,7 +892,7 @@ function nd.setModsHooks()
 	end;
 	nd.disconnectConn(nd.pgConn);
 	nd.pgConn = nil;
-	for _, d in ipairs(g:QueryDescendants("Instance")) do
+	for _, d in g:QueryDescendants("Instance") do
 		if nd.isMainMods(d) then
 			task.defer(nd.hookSpider);
 			task.defer(nd.hookA90);
@@ -978,7 +978,7 @@ function nd.regHp(p)
 	end;
 	nd.hconn = nd.rs.Heartbeat:Connect(function()
 		local now = tick();
-		for part, t0 in pairs(nd.hparts) do
+		for part, t0 in nd.hparts do
 			if (not part) or (not part.Parent) or (now - t0 > 10) then
 				nd.hparts[part] = nil;
 				if part then
@@ -1393,7 +1393,7 @@ if nd.isPoopSploit then
 		if typeof(target) == "Instance" and target:IsA("ProximityPrompt") then
 			list[1] = target;
 		elseif typeof(target) == "table" then
-			for _, v in ipairs(target) do
+			for _, v in target do
 				if typeof(v) == "Instance" and v:IsA("ProximityPrompt") then
 					nd.Insert(list, v);
 				end;
@@ -1407,7 +1407,7 @@ if nd.isPoopSploit then
 			stagger = 0.02;
 		end;
 
-		for i, pp in ipairs(list) do
+		for i, pp in list do
 			local d = stagger * (i - 1);
 			if d > 0 then
 				nd.Delay(d, function()
@@ -1580,7 +1580,7 @@ function nd.forceLookDown(ctx)
 end;
 function nd.findLookman()
 	local root = workspace:FindFirstChild("CurrentRooms") or workspace;
-	for _, d in ipairs(root:GetDescendants()) do
+	for _, d in root:GetDescendants() do
 		local n = tostring(d.Name or ""):lower();
 		if n:find("lookman") or n:find("look man") or n:find("look_man") then
 			return d;
@@ -1641,7 +1641,7 @@ function nd.muteFx()
 		end;
 		if (nd.muteFxSoundAt or 0) <= now then
 			nd.muteFxSoundAt = now + 8;
-			for _, d in ipairs(main:GetDescendants()) do
+			for _, d in main:GetDescendants() do
 				nd.silenceSound(d);
 			end;
 		end;
@@ -1649,7 +1649,7 @@ function nd.muteFx()
 	local cam = workspace.CurrentCamera;
 	if cam and (nd.muteFxCamAt or 0) <= now then
 		nd.muteFxCamAt = now + 8;
-		for _, d in ipairs(cam:GetChildren()) do
+		for _, d in cam:GetChildren() do
 			if d.Name == "yea" or d.Name:lower():find("jumpscare") then
 				pcall(function()
 					d:Destroy();
@@ -1667,13 +1667,13 @@ function nd.muteFx()
 	end;
 	local mf = u:FindFirstChild("MainFrame");
 	if mf then
-		for _, n in ipairs({ "EyelidsVignette", "Heartbeat", "MinigameBackout" }) do
+		for _, n in { "EyelidsVignette", "Heartbeat", "MinigameBackout" } do
 			local f = mf:FindFirstChild(n, true);
 			if f then
 				nd.muteUiFrame(f);
 			end;
 		end;
-		for _, d in ipairs(mf:GetDescendants()) do
+		for _, d in mf:GetDescendants() do
 			local n = d.Name:lower();
 			if n:find("whitevignette") and n:find("live") then
 				nd.trySet(d, "Visible", false);
@@ -1699,7 +1699,7 @@ function nd.patchPromptRoot(root)
 	if not nd.promptPatchEnabled or not root then
 		return;
 	end;
-	for _, d in ipairs(root:GetDescendants()) do
+	for _, d in root:GetDescendants() do
 		nd.patchPrompt(d);
 	end;
 end;
@@ -1900,7 +1900,7 @@ function nd.moduleFallback(ms, name)
 	end;
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	if remf then
-		for _, r in ipairs(remf:GetDescendants()) do
+		for _, r in remf:GetDescendants() do
 			if r:IsA("RemoteEvent") and tostring(r.Name or ""):lower() == name then
 				nd.muteSignal(r.OnClientEvent);
 			end;
@@ -1909,13 +1909,13 @@ function nd.moduleFallback(ms, name)
 	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
 	local cr = fr and fr:FindFirstChild("ClientRemote");
 	if cr then
-		for _, r in ipairs(cr:GetDescendants()) do
+		for _, r in cr:GetDescendants() do
 			if r:IsA("RemoteEvent") and (tostring(r.Name or ""):lower() == name or (r.Parent and tostring(r.Parent.Name or ""):lower() == name)) then
 				nd.muteSignal(r.OnClientEvent);
 			end;
 		end;
 	end;
-	for _, d in ipairs(ms:GetDescendants()) do
+	for _, d in ms:GetDescendants() do
 		if d:IsA("Sound") or d:IsA("SoundEffect") then
 			nd.silenceSound(d);
 		elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
@@ -1953,7 +1953,7 @@ function nd.noopModule(ms)
 			nd.hf(ret, stub);
 		end);
 	elseif nd.hasHook and type(ret) == "table" then
-		for k, v in pairs(ret) do
+		for k, v in ret do
 			if type(v) == "function" then
 				local lk = tostring(k):lower();
 				if lk:find("start") or lk:find("init") or lk:find("run") or lk:find("jumpscare") or lk:find("damage") then
@@ -1974,7 +1974,7 @@ function nd.scanModRoot(root)
 		return;
 	end;
 	nd.modScannedRoots[root] = true;
-	for _, d in ipairs(root:GetDescendants()) do
+	for _, d in root:GetDescendants() do
 		nd.noopModule(d);
 	end;
 	nd.modWatchId = (nd.modWatchId or 0) + 1;
@@ -2022,7 +2022,7 @@ function nd.isFigureInst(obj)
 end;
 function nd.delDanger()
 	local cr = workspace:FindFirstChild("CurrentRooms") or workspace;
-	for _, d in ipairs(cr:GetDescendants()) do
+	for _, d in cr:GetDescendants() do
 		local n = d.Name:lower();
 		if nd.isFigureInst(d) then
 			continue;
@@ -2032,7 +2032,7 @@ function nd.delDanger()
 				d:Destroy();
 			end);
 		else
-			for _, p in ipairs(nd.delPart) do
+			for _, p in nd.delPart do
 				if n:find(p) then
 					pcall(function()
 						d:Destroy();
@@ -2099,10 +2099,10 @@ nd.extraNoopNames = {
 	"seekeye",
 	"riftspawn"
 };
-for _, n in ipairs(nd.extraNoopNames) do
+for _, n in nd.extraNoopNames do
 	nd.noModNames[n] = true;
 end;
-for _, n in ipairs({
+for _, n in {
 	"dread",
 	"screech",
 	"screechretro",
@@ -2110,10 +2110,10 @@ for _, n in ipairs({
 	"glitchcube",
 	"hallucination",
 	"a90",
-}) do
+} do
 	nd.delExact[n] = true;
 end;
-for _, n in ipairs({
+for _, n in {
 	"dread",
 	"sanity",
 	"coldbox",
@@ -2124,7 +2124,7 @@ for _, n in ipairs({
 	"camposwire",
 	"camposhall",
 	"camposoverhead"
-}) do
+} do
 	table.insert(nd.delPart, n);
 end;
 nd.figureKeepNames = {
@@ -2163,7 +2163,7 @@ nd.blockRemoteNames = {
 	eyes = true;
 	seek = true;
 };
-for n in pairs(nd.figureKeepNames) do
+for n in nd.figureKeepNames do
 	nd.noModNames[n] = nil;
 	nd.delExact[n] = nil;
 	nd.badExact[n] = nil;
@@ -2175,7 +2175,7 @@ function nd.restoreDisabledConns()
 	if type(list) ~= "table" then
 		return;
 	end;
-	for c in pairs(list) do
+	for c in list do
 		pcall(function()
 			if type(c.Enable) == "function" then
 				c:Enable();
@@ -2219,7 +2219,7 @@ function nd.muteSignal(sig)
 	if not (ok and type(list) == "table") then
 		return;
 	end;
-	for _, c in ipairs(list) do
+	for _, c in list do
 		nd.disableConnObj(c);
 	end;
 end;
@@ -2255,7 +2255,7 @@ function nd.watchRemoteRoot(root, key)
 		return;
 	end;
 	nd.remoteSeenRoots[root] = true;
-	for _, r in ipairs(root:GetDescendants()) do
+	for _, r in root:GetDescendants() do
 		nd.muteRemote(r);
 	end;
 	nd.replaceConn(key, root.DescendantAdded:Connect(function(r)
@@ -2297,7 +2297,7 @@ function nd.hardChar()
 	if not c then
 		return;
 	end;
-	for k, v in pairs({
+	for k, v in {
 		Invincibility = true,
 		CanSlide = true,
 		CanJump = true,
@@ -2312,7 +2312,7 @@ function nd.hardChar()
 		Hiding = false,
 		InCutscene = false,
 		Alive = true
-	}) do
+	} do
 		nd.tryAttr(c, k, v);
 	end;
 	local root = c.PrimaryPart or c:FindFirstChild("HumanoidRootPart");
@@ -2332,7 +2332,7 @@ function nd.hideGuiHard()
 	if not u then
 		return;
 	end;
-	for _, name in ipairs({
+	for _, name in {
 		"Jumpscare",
 		"FlashFrame",
 		"ToBeContinued",
@@ -2343,13 +2343,13 @@ function nd.hideGuiHard()
 		"FlashSpecify",
 		"CandyCaptionHolder",
 		"PointsHolder"
-	}) do
+	} do
 		local f = u:FindFirstChild(name, true);
 		if f then
 			nd.muteUiFrame(f);
 		end;
 	end;
-	for _, d in ipairs(u:GetDescendants()) do
+	for _, d in u:GetDescendants() do
 		local n = tostring(d.Name or ""):lower();
 		if n:find("jumpscare") or n:find("dread") or n:find("vignette") or n:find("liveachievement") or n:find("liveprogress") or n:find("livecandy") or n:find("flash") then
 			if d:IsA("GuiObject") or d:IsA("ScreenGui") or d:IsA("BillboardGui") then
@@ -2375,7 +2375,7 @@ function nd.clearCameraFx()
 	nd.clearFxAt = now + 8;
 	local cam = workspace.CurrentCamera;
 	if cam then
-		for _, d in ipairs(cam:GetDescendants()) do
+		for _, d in cam:GetDescendants() do
 			local n = tostring(d.Name or ""):lower();
 			if n == "yea" or n == "livesanity" or n == "tempblur" or n:find("green") or n:find("jumpscare") or n:find("sanity") or n:find("dread") then
 				pcall(function()
@@ -2386,7 +2386,7 @@ function nd.clearCameraFx()
 			end;
 		end;
 	end;
-	for _, d in ipairs(game.Lighting:GetChildren()) do
+	for _, d in game.Lighting:GetChildren() do
 		local n = tostring(d.Name or ""):lower();
 		if n:find("sanity") or n:find("oxygen") or n:find("dread") then
 			if d:IsA("ColorCorrectionEffect") then
@@ -2402,7 +2402,7 @@ function nd.clearCameraFx()
 	end;
 	local main = nd.ss and nd.ss:FindFirstChild("Main");
 	if main then
-		for _, d in ipairs(main:GetDescendants()) do
+		for _, d in main:GetDescendants() do
 			if d:IsA("Sound") or d:IsA("SoundEffect") then
 				nd.silenceSound(d);
 				local n = tostring(d.Name or ""):lower();
@@ -2440,7 +2440,7 @@ function nd.hookGcFuncs()
 	if not (ok and type(list) == "table") then
 		return;
 	end;
-	for _, fn in ipairs(list) do
+	for _, fn in list do
 		if type(fn) == "function" and not nd.gcNoop[fn] then
 			local info;
 			pcall(function()
@@ -2453,7 +2453,7 @@ function nd.hookGcFuncs()
 				continue;
 			end;
 			local hit = false;
-			for _, p in ipairs(pats) do
+			for _, p in pats do
 				if src:find(p, 1, true) then
 					hit = true;
 					break;
@@ -2522,12 +2522,12 @@ function nd.hardDangerSweep()
 		workspace:FindFirstChild("Entities"),
 		workspace.CurrentCamera
 	};
-	for _, d in ipairs(workspace:GetChildren()) do
+	for _, d in workspace:GetChildren() do
 		nd.hardDangerOne(d);
 	end;
-	for _, root in ipairs(roots) do
+	for _, root in roots do
 		if root then
-			for _, d in ipairs(root:GetDescendants()) do
+			for _, d in root:GetDescendants() do
 				nd.hardDangerOne(d);
 			end;
 		end;
@@ -2590,16 +2590,16 @@ function nd.hardBypasses()
 end;
 
 function nd.plugRun()
-	for _, t in ipairs(nd.promptTargets) do
+	for _, t in nd.promptTargets do
 		nd.ensurePrompt(t, false);
 	end;
-	for _, t in ipairs(nd.promptFindTargets) do
+	for _, t in nd.promptFindTargets do
 		nd.ensurePrompt(t, true);
 	end;
-	for _, term in ipairs(nd.espExactTargets) do
+	for _, term in nd.espExactTargets do
 		nd.ensureEsp("exact", term);
 	end;
-	for _, args in ipairs(nd.otherCmds) do
+	for _, args in nd.otherCmds do
 		nd.safeCmdRun(args);
 	end;
 	nd.killJam();
