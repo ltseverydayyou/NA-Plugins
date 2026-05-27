@@ -1482,7 +1482,6 @@ function nd.patchCtx()
 	if type(ctx) ~= "table" then
 		return;
 	end;
-	ctx.dead = false;
 	ctx.stunned = false;
 	ctx.disableMovement = false;
 	ctx.canUseItems = true;
@@ -1491,7 +1490,6 @@ function nd.patchCtx()
 	ctx.freemouse = false;
 	ctx.hiding = false;
 	ctx.hideplayers = 0;
-	ctx.deathtick = tick() + 999999;
 	if ctx.hum then
 		nd.trySet(ctx.hum, "PlatformStand", false);
 		nd.trySet(ctx.hum, "Sit", false);
@@ -1568,7 +1566,6 @@ function nd.forceLookDown(ctx)
 		ctx.az_t = 0;
 		ctx.stopcam = false;
 		ctx.freemouse = false;
-		ctx.deathtick = tick() + 999999;
 		if type(ctx.update) == "function" then
 			pcall(ctx.update);
 		end;
@@ -2276,7 +2273,6 @@ function nd.hardCtx()
 	if type(ctx) ~= "table" then
 		return;
 	end;
-	ctx.dead = false;
 	ctx.stunned = false;
 	ctx.disableMovement = false;
 	ctx.minigaming = false;
@@ -2288,7 +2284,6 @@ function nd.hardCtx()
 	ctx.chase = false;
 	ctx.chaseMove = false;
 	ctx.hiding = false;
-	ctx.deathtick = tick() + 999999;
 	if type(ctx.update) == "function" then
 		pcall(ctx.update);
 	end;
