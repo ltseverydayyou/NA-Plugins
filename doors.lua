@@ -1487,7 +1487,6 @@ function nd.patchCtx()
 	ctx.canUseItems = true;
 	ctx.hotbarenabled = true;
 	ctx.stopcam = false;
-	ctx.freemouse = false;
 	ctx.hiding = false;
 	ctx.hideplayers = 0;
 	if ctx.hum then
@@ -1565,7 +1564,6 @@ function nd.forceLookDown(ctx)
 		ctx.az = 0;
 		ctx.az_t = 0;
 		ctx.stopcam = false;
-		ctx.freemouse = false;
 		if type(ctx.update) == "function" then
 			pcall(ctx.update);
 		end;
@@ -1726,9 +1724,7 @@ nd.badExact = {
 	damage = true;
 	takedamage = true;
 	kill = true;
-	camlock = true;
 	camshake = true;
-	camlockhead = true;
 	climbladder = true;
 	void = true;
 	rush = true;
@@ -2074,7 +2070,6 @@ nd.extraNoopNames = {
 	"seekintrohotel",
 	"achievementprogress",
 	"achievementunlock",
-	"camlockhead",
 	"camshake",
 	"changemodulevariable",
 	"endlighting",
@@ -2144,7 +2139,6 @@ nd.blockRemoteNames = {
 	lookmanmodule = true;
 	spiderjumpscare = true;
 	camshake = true;
-	camlockhead = true;
 	climbladder = true;
 	changemodulevariable = true;
 	flashspecify = true;
@@ -2277,10 +2271,7 @@ function nd.hardCtx()
 	ctx.disableMovement = false;
 	ctx.minigaming = false;
 	ctx.stopcam = false;
-	ctx.freemouse = false;
 	ctx.hideplayers = 0;
-	ctx.camlock = nil;
-	ctx.camlockHead = false;
 	ctx.chase = false;
 	ctx.chaseMove = false;
 	ctx.hiding = false;
@@ -2432,7 +2423,6 @@ function nd.hookGcFuncs()
 		"seekintro",
 		"elevator1",
 		"camshake",
-		"camlockhead",
 		"climbladder",
 		"minigamehandler",
 	};
