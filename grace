@@ -1203,296 +1203,161 @@ local function doGlobby()
 	end
 	return "globby fired"
 end
-cmdPluginAdd = {
-	{
-		Aliases = {
-			"gracegod",
-			"ggod",
-		},
-		ArgsHint = "",
-		Info = "h",
-		Function = function(arg)
-			local u = doUiBlock()
-			local w = doWorkspaceBlock()
-			local j = doJoeyBlock()
-			local k = doKillClientGuard()
-			local b = doBypassPack()
-			return {
-				ui = u,
-				workspace = w,
-				joey = j,
-				killclient = k,
-				bypass = b,
-			}
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracefull",
-			"gfull",
-		},
-		ArgsHint = "",
-		Info = "Grace full: UI block, bypass pack, send kill, auto doors",
-		Function = function(arg)
-			local u = doUiBlock()
-			local j = doJoeyBlock()
-			local s = doSendKill()
-			local d = doDoorLoop()
-			local k = doKillClientGuard()
-			local b = doBypassPack()
-			return {
-				ui = u,
-				joey = j,
-				send = s,
-				door = d,
-				killclient = k,
-				bypass = b,
-			}
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"graceui",
-		},
-		ArgsHint = "",
-		Info = "Block Grace scare GUIs",
-		Function = function(arg)
-			return doUiBlock()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracejoey",
-			"gjoey",
-		},
-		ArgsHint = "",
-		Info = "Delete any Tool named Joey from Backpack or Character",
-		Function = function(arg)
-			return doJoeyBlock()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracesend",
-			"gsend",
-		},
-		ArgsHint = "",
-		Info = "Destroy ReplicatedStorage instances containing 'send' in their name",
-		Function = function(arg)
-			return doSendKill()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracedoor",
-			"gdoor",
-		},
-		ArgsHint = "",
-		Info = "Auto-TP to CurrentRoom+1 door and auto-open doors",
-		Function = function(arg)
-			return doDoorLoop()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracedooroff",
-			"gdooroff",
-			"ungdoor",
-			"ungracedoor",
-		},
-		ArgsHint = "",
-		Info = "Stop auto door loop",
-		Function = function(arg)
-			return stopDoorLoop()
-		end,
-		RequiresArguments = false,
-	},
+local plugin = Plugin.new("Grace")
 
-	{
-		Aliases = {
-			"gracebypass",
-			"gbypass",
-		},
-		ArgsHint = "",
-		Info = "Enable instant prompts, anti pit/void, entity ESP, plug helper, and low FX",
-		Function = function(arg)
-			return doBypassPack()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracebypassoff",
-			"gbypassoff",
-			"ungbypass",
-		},
-		ArgsHint = "",
-		Info = "Disable the Grace bypass pack",
-		Function = function(arg)
-			return stopBypassPack()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"graceprompt",
-			"gprompt",
-		},
-		ArgsHint = "",
-		Info = "Make ProximityPrompts instant, clickable, farther, and no line-of-sight",
-		Function = function(arg)
-			return doPrompt()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracepromptoff",
-			"gpromptoff",
-		},
-		ArgsHint = "",
-		Info = "Restore ProximityPrompt values changed by graceprompt",
-		Function = function(arg)
-			return stopPrompt()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracevoid",
-			"gvoid",
-		},
-		ArgsHint = "",
-		Info = "Save safe positions and rescue if you fall below void or become out-of-bounds",
-		Function = function(arg)
-			return doVoid()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracepit",
-			"gpit",
-		},
-		ArgsHint = "",
-		Info = "Disable local Pit touches and rescue to the last safe position",
-		Function = function(arg)
-			return doPit()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"graceesp",
-			"gesp",
-		},
-		ArgsHint = "",
-		Info = "Mark FlowerHead/targeted entities with a simple billboard",
-		Function = function(arg)
-			return doESP()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"graceespoff",
-			"gespoff",
-		},
-		ArgsHint = "",
-		Info = "Remove Grace entity ESP markers",
-		Function = function(arg)
-			return stopESP()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"graceplug",
-			"gplug",
-		},
-		ArgsHint = "[range]",
-		Info = "Mark pickup plugs, enlarge their touch area, and touch them automatically when close",
-		Function = function(arg)
-			return doPlug(tonumber(arg))
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"graceplugoff",
-			"gplugoff",
-		},
-		ArgsHint = "",
-		Info = "Stop the plug helper and remove plug markers",
-		Function = function(arg)
-			return stopPlug()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracelowfx",
-			"glowfx",
-			"gfixlag",
-		},
-		ArgsHint = "",
-		Info = "Disable heavy particles, trails, beams, wind/static/jumpscare sounds, and client saturation",
-		Function = function(arg)
-			return doLowFX()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracelowfxoff",
-			"glowfxoff",
-		},
-		ArgsHint = "",
-		Info = "Restore effects changed by gracelowfx",
-		Function = function(arg)
-			return stopLowFX()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracenoprops",
-			"gnoprops",
-		},
-		ArgsHint = "",
-		Info = "Move room Props into Lighting locally and try to enable the noProp client setting",
-		Function = function(arg)
-			return doNoProps()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"gracenopropsoff",
-			"gnopropsoff",
-		},
-		ArgsHint = "",
-		Info = "Restore room Props moved by gracenoprops",
-		Function = function(arg)
-			return stopNoProps()
-		end,
-		RequiresArguments = false,
-	},
-	{
-		Aliases = {
-			"globby",
-		},
-		ArgsHint = "",
-		Info = "",
-		Function = function(arg)
-			return doGlobby()
-		end,
-		RequiresArguments = false,
-	},
-}
+plugin:cmd("gracegod", "ggod")
+	:info("h")
+	:run(function()
+		local u = doUiBlock()
+		local w = doWorkspaceBlock()
+		local j = doJoeyBlock()
+		local k = doKillClientGuard()
+		local b = doBypassPack()
+		return {
+			ui = u,
+			workspace = w,
+			joey = j,
+			killclient = k,
+			bypass = b,
+		}
+	end)
+
+plugin:cmd("gracefull", "gfull")
+	:info("Grace full: UI block, bypass pack, send kill, auto doors")
+	:run(function()
+		local u = doUiBlock()
+		local j = doJoeyBlock()
+		local s = doSendKill()
+		local d = doDoorLoop()
+		local k = doKillClientGuard()
+		local b = doBypassPack()
+		return {
+			ui = u,
+			joey = j,
+			send = s,
+			door = d,
+			killclient = k,
+			bypass = b,
+		}
+	end)
+
+plugin:cmd("graceui")
+	:info("Block Grace scare GUIs")
+	:run(function()
+		return doUiBlock()
+	end)
+
+plugin:cmd("gracejoey", "gjoey")
+	:info("Delete any Tool named Joey from Backpack or Character")
+	:run(function()
+		return doJoeyBlock()
+	end)
+
+plugin:cmd("gracesend", "gsend")
+	:info("Destroy ReplicatedStorage instances containing 'send' in their name")
+	:run(function()
+		return doSendKill()
+	end)
+
+plugin:cmd("gracedoor", "gdoor")
+	:info("Auto-TP to CurrentRoom+1 door and auto-open doors")
+	:run(function()
+		return doDoorLoop()
+	end)
+
+plugin:cmd("gracedooroff", "gdooroff", "ungdoor", "ungracedoor")
+	:info("Stop auto door loop")
+	:run(function()
+		return stopDoorLoop()
+	end)
+
+plugin:cmd("gracebypass", "gbypass")
+	:info("Enable instant prompts, anti pit/void, entity ESP, plug helper, and low FX")
+	:run(function()
+		return doBypassPack()
+	end)
+
+plugin:cmd("gracebypassoff", "gbypassoff", "ungbypass")
+	:info("Disable the Grace bypass pack")
+	:run(function()
+		return stopBypassPack()
+	end)
+
+plugin:cmd("graceprompt", "gprompt")
+	:info("Make ProximityPrompts instant, clickable, farther, and no line-of-sight")
+	:run(function()
+		return doPrompt()
+	end)
+
+plugin:cmd("gracepromptoff", "gpromptoff")
+	:info("Restore ProximityPrompt values changed by graceprompt")
+	:run(function()
+		return stopPrompt()
+	end)
+
+plugin:cmd("gracevoid", "gvoid")
+	:info("Save safe positions and rescue if you fall below void or become out-of-bounds")
+	:run(function()
+		return doVoid()
+	end)
+
+plugin:cmd("gracepit", "gpit")
+	:info("Disable local Pit touches and rescue to the last safe position")
+	:run(function()
+		return doPit()
+	end)
+
+plugin:cmd("graceesp", "gesp")
+	:info("Mark FlowerHead/targeted entities with a simple billboard")
+	:run(function()
+		return doESP()
+	end)
+
+plugin:cmd("graceespoff", "gespoff")
+	:info("Remove Grace entity ESP markers")
+	:run(function()
+		return stopESP()
+	end)
+
+plugin:cmd("graceplug", "gplug")
+	:args("[range]")
+	:info("Mark pickup plugs, enlarge their touch area, and touch them automatically when close")
+	:run(function(_, a)
+		return doPlug(tonumber(a))
+	end)
+
+plugin:cmd("graceplugoff", "gplugoff")
+	:info("Stop the plug helper and remove plug markers")
+	:run(function()
+		return stopPlug()
+	end)
+
+plugin:cmd("gracelowfx", "glowfx", "gfixlag")
+	:info("Disable heavy particles, trails, beams, wind/static/jumpscare sounds, and client saturation")
+	:run(function()
+		return doLowFX()
+	end)
+
+plugin:cmd("gracelowfxoff", "glowfxoff")
+	:info("Restore effects changed by gracelowfx")
+	:run(function()
+		return stopLowFX()
+	end)
+
+plugin:cmd("gracenoprops", "gnoprops")
+	:info("Move room Props into Lighting locally and try to enable the noProp client setting")
+	:run(function()
+		return doNoProps()
+	end)
+
+plugin:cmd("gracenopropsoff", "gnopropsoff")
+	:info("Restore room Props moved by gracenoprops")
+	:run(function()
+		return stopNoProps()
+	end)
+
+plugin:cmd("globby")
+	:info("")
+	:run(function()
+		return doGlobby()
+	end)
