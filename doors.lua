@@ -325,24 +325,31 @@ nd.otherCmds = {
 	}
 };
 function nd.safeCmdRun(args)
-	if typeof(cmdRun) ~= "function" then
-		return;
-	end;
-	pcall(function()
-		cmdRun(args);
-	end);
-end;
-function nd.ensurePrompt(target, useFind)
-	if typeof(cmdRun) == "function" then
+	local ctx = nd.cmdCtx;
+	if type(ctx) == "table" and type(ctx.run) == "function" then
 		local ok = pcall(function()
-			cmdRun({
-				useFind and "afpfind" or "afp",
-				target
-			});
+			ctx:run(args);
 		end);
 		if ok then
-			return;
+			return true;
 		end;
+	end;
+	if typeof(cmdRun) == "function" then
+		local ok = pcall(function()
+			cmdRun(args);
+		end);
+		if ok then
+			return true;
+		end;
+	end;
+	return false;
+end;
+function nd.ensurePrompt(target, useFind)
+	if nd.safeCmdRun({
+		useFind and "afpfind" or "afp",
+		target
+	}) then
+		return;
 	end;
 	local interval = 0.1;
 	if NAjobs and type(NAjobs.jobs) == "table" then
@@ -2579,7 +2586,10 @@ function nd.hardBypasses()
 	nd.hardBypassLoop();
 end;
 
-function nd.plugRun()
+function nd.plugRun(ctx)
+	if type(ctx) == "table" then
+		nd.cmdCtx = ctx;
+	end;
 	for _, t in nd.promptTargets do
 		nd.ensurePrompt(t, false);
 	end;
@@ -2621,25 +2631,22 @@ function nd.plugRun()
 		end));
 	end;
 end;
-cmdPluginAdd = {
-	{
-		Aliases = {
-			"nadoors",
-			"doorsna"
-		},
-		Info = "boop",
-		Function = nd.plugRun,
-		RequiresArguments = false
-	},
-	{
-		Aliases = {
-			"doordist",
-			"dooropenrange",
-			"clientopendist",
-			"clientopenrange"
-		},
-		Info = "sets ClientOpen fire distance",
-		Function = nd.doorDistCmd,
-		RequiresArguments = false
-	}
-};
+local plugin = Plugin.new("NA Doors");
+
+plugin:cmd("nadoors", "doorsna")
+	:info("Loads the Doors bypass setup")
+	:run(function(ctx)
+		nd.plugRun(ctx);
+		ctx:notify("NA Doors loaded", 3);
+	end);
+
+plugin:cmd("doordist", "dooropenrange", "clientopendist", "clientopenrange")
+	:args("[distance|inf]")
+	:info("Sets ClientOpen fire distance")
+	:run(function(ctx, ...)
+		nd.cmdCtx = ctx;
+		local msg = nd.doorDistCmd(...);
+		if msg ~= nil then
+			ctx:notify(tostring(msg), 3);
+		end;
+	end);
