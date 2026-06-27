@@ -714,7 +714,7 @@ function nd.muteUiFrame(f)
 	if ok and type(q) == "table" then
 		ds = q;
 	else
-		ds = f:GetDescendants();
+		ds = f:QueryDescendants("Instance");
 	end;
 	for _, d in ds do
 		if d:IsA("ImageLabel") or d:IsA("ImageButton") then
@@ -1585,7 +1585,7 @@ function nd.forceLookDown(ctx)
 end;
 function nd.findLookman()
 	local root = workspace:FindFirstChild("CurrentRooms") or workspace;
-	for _, d in root:GetDescendants() do
+	for _, d in root:QueryDescendants("Instance") do
 		local n = tostring(d.Name or ""):lower();
 		if n:find("lookman") or n:find("look man") or n:find("look_man") then
 			return d;
@@ -1646,7 +1646,7 @@ function nd.muteFx()
 		end;
 		if (nd.muteFxSoundAt or 0) <= now then
 			nd.muteFxSoundAt = now + 8;
-			for _, d in main:GetDescendants() do
+			for _, d in main:QueryDescendants("Instance") do
 				nd.silenceSound(d);
 			end;
 		end;
@@ -1678,7 +1678,7 @@ function nd.muteFx()
 				nd.muteUiFrame(f);
 			end;
 		end;
-		for _, d in mf:GetDescendants() do
+		for _, d in mf:QueryDescendants("Instance") do
 			local n = d.Name:lower();
 			if n:find("whitevignette") and n:find("live") then
 				nd.trySet(d, "Visible", false);
@@ -1704,7 +1704,7 @@ function nd.patchPromptRoot(root)
 	if not nd.promptPatchEnabled or not root then
 		return;
 	end;
-	for _, d in root:GetDescendants() do
+	for _, d in root:QueryDescendants("Instance") do
 		nd.patchPrompt(d);
 	end;
 end;
@@ -1903,22 +1903,20 @@ function nd.moduleFallback(ms, name)
 	end;
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	if remf then
-		for _, r in remf:GetDescendants() do
-			if r:IsA("RemoteEvent") and tostring(r.Name or ""):lower() == name then
-				nd.muteSignal(r.OnClientEvent);
+		for _, r in remf:QueryDescendants("RemoteEvent") do
+			if tostring(r.Name or ""):lower() == name then				nd.muteSignal(r.OnClientEvent);
 			end;
 		end;
 	end;
 	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
 	local cr = fr and fr:FindFirstChild("ClientRemote");
 	if cr then
-		for _, r in cr:GetDescendants() do
-			if r:IsA("RemoteEvent") and (tostring(r.Name or ""):lower() == name or (r.Parent and tostring(r.Parent.Name or ""):lower() == name)) then
-				nd.muteSignal(r.OnClientEvent);
+		for _, r in cr:QueryDescendants("RemoteEvent") do
+			if (tostring(r.Name or ""):lower() == name or (r.Parent and tostring(r.Parent.Name or ""):lower() == name)) then				nd.muteSignal(r.OnClientEvent);
 			end;
 		end;
 	end;
-	for _, d in ms:GetDescendants() do
+	for _, d in ms:QueryDescendants("Instance") do
 		if d:IsA("Sound") or d:IsA("SoundEffect") then
 			nd.silenceSound(d);
 		elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
@@ -1977,7 +1975,7 @@ function nd.scanModRoot(root)
 		return;
 	end;
 	nd.modScannedRoots[root] = true;
-	for _, d in root:GetDescendants() do
+	for _, d in root:QueryDescendants("Instance") do
 		nd.noopModule(d);
 	end;
 	nd.modWatchId = (nd.modWatchId or 0) + 1;
@@ -2025,7 +2023,7 @@ function nd.isFigureInst(obj)
 end;
 function nd.delDanger()
 	local cr = workspace:FindFirstChild("CurrentRooms") or workspace;
-	for _, d in cr:GetDescendants() do
+	for _, d in cr:QueryDescendants("Instance") do
 		local n = d.Name:lower();
 		if nd.isFigureInst(d) then
 			continue;
@@ -2256,7 +2254,7 @@ function nd.watchRemoteRoot(root, key)
 		return;
 	end;
 	nd.remoteSeenRoots[root] = true;
-	for _, r in root:GetDescendants() do
+	for _, r in root:QueryDescendants("Instance") do
 		nd.muteRemote(r);
 	end;
 	nd.replaceConn(key, root.DescendantAdded:Connect(function(r)
@@ -2347,7 +2345,7 @@ function nd.hideGuiHard()
 			nd.muteUiFrame(f);
 		end;
 	end;
-	for _, d in u:GetDescendants() do
+	for _, d in u:QueryDescendants("Instance") do
 		local n = tostring(d.Name or ""):lower();
 		if n:find("jumpscare") or n:find("dread") or n:find("vignette") or n:find("liveachievement") or n:find("liveprogress") or n:find("livecandy") or n:find("flash") then
 			if d:IsA("GuiObject") or d:IsA("ScreenGui") or d:IsA("BillboardGui") then
@@ -2373,7 +2371,7 @@ function nd.clearCameraFx()
 	nd.clearFxAt = now + 8;
 	local cam = workspace.CurrentCamera;
 	if cam then
-		for _, d in cam:GetDescendants() do
+		for _, d in cam:QueryDescendants("Instance") do
 			local n = tostring(d.Name or ""):lower();
 			if n == "yea" or n == "livesanity" or n == "tempblur" or n:find("green") or n:find("jumpscare") or n:find("sanity") or n:find("dread") then
 				pcall(function()
@@ -2400,7 +2398,7 @@ function nd.clearCameraFx()
 	end;
 	local main = nd.ss and nd.ss:FindFirstChild("Main");
 	if main then
-		for _, d in main:GetDescendants() do
+		for _, d in main:QueryDescendants("Instance") do
 			if d:IsA("Sound") or d:IsA("SoundEffect") then
 				nd.silenceSound(d);
 				local n = tostring(d.Name or ""):lower();
@@ -2524,7 +2522,7 @@ function nd.hardDangerSweep()
 	end;
 	for _, root in roots do
 		if root then
-			for _, d in root:GetDescendants() do
+			for _, d in root:QueryDescendants("Instance") do
 				nd.hardDangerOne(d);
 			end;
 		end;

@@ -276,7 +276,7 @@ local function doWorkspaceBlock()
 			end)
 		end
 	end
-	for _, inst in workspace:GetDescendants() do
+	for _, inst in workspace:QueryDescendants("Instance") do
 		tryDestroy(inst)
 	end
 	wsConn = track(workspace.DescendantAdded:Connect(tryDestroy))
@@ -701,7 +701,7 @@ local function doPrompt()
 		return "instant prompts already running"
 	end
 	gp.on = true
-	for _, inst in workspace:GetDescendants() do
+	for _, inst in workspace:QueryDescendants("Instance") do
 		setupPrompt(inst)
 	end
 	addCon(gp.cons, workspace.DescendantAdded:Connect(function(inst)
@@ -871,7 +871,7 @@ local function doESP()
 		end
 		addCon(gesp.cons, CollectionService:GetInstanceAddedSignal("FlowerHead"):Connect(setupEnt))
 	end
-	for _, inst in workspace:GetDescendants() do
+	for _, inst in workspace:QueryDescendants("Instance") do
 		local ok, tgt = pcall(function()
 			return inst:GetAttribute("Target")
 		end)
@@ -1005,7 +1005,7 @@ local function doLowFX()
 		return "low fx already running"
 	end
 	gfx.on = true
-	for _, inst in game:GetDescendants() do
+	for _, inst in game:QueryDescendants("Instance") do
 		fxOne(inst)
 	end
 	addCon(gfx.cons, game.DescendantAdded:Connect(fxOne))
