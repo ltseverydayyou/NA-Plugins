@@ -322,6 +322,9 @@ nd.otherCmds = {
 	},
 	{
 		"ipp"
+	},
+	{
+		"lenpp"
 	}
 };
 function nd.safeCmdRun(args)
