@@ -133,7 +133,6 @@ local ndWasInit = nd.init == true;
 nd.doorDist = nd.doorDist or math.huge;
 if ndWasInit and type(nd.cleanup) == "function" then
 	pcall(nd.cleanup);
-	ndWasInit = false;
 end;
 nd.init = true;
 function nd.disconnectConn(conn)
@@ -168,8 +167,10 @@ function nd.cleanupRuntime()
 	if type(nd.restoreConns) == "function" then
 		pcall(nd.restoreConns);
 	end;
+
 	for _, key in {
 		"roomConn",
+		"roomChildConn",
 		"attrConn",
 		"crouchConn",
 		"charConn",
@@ -187,10 +188,40 @@ function nd.cleanupRuntime()
 		"frWatch2",
 		"gcScanConn",
 		"hconn",
+		"dangerRoomsWatch",
+		"dangerEntWatch",
+		"dangerCamWatch",
 	} do
 		nd.disconnectConn(nd[key]);
 		nd[key] = nil;
 	end;
+
+	local dynamicKeys = {};
+	for key, value in pairs(nd) do
+		if type(key) == "string"
+			and (key:match("^modWatch%d+$") or key:match("^legacyWatch%d+$"))
+			and typeof(value) == "RBXScriptConnection"
+		then
+			table.insert(dynamicKeys, key);
+		end;
+	end;
+	for _, key in ipairs(dynamicKeys) do
+		nd.disconnectConn(nd[key]);
+		nd[key] = nil;
+	end;
+
+	nd.roomConnSource = nil;
+	nd.roomChildSource = nil;
+	nd.lastDoorInst = nil;
+	nd.lastDoorFireAt = nil;
+	nd.dangerRoomsWatchRoot = nil;
+	nd.dangerEntWatchRoot = nil;
+	nd.dangerCamWatchRoot = nil;
+	nd.modScannedRoots = setmetatable({}, { __mode = "k" });
+	nd.remoteSeenRoots = setmetatable({}, { __mode = "k" });
+	nd.dangerSeenRoots = setmetatable({}, { __mode = "k" });
+	nd.promptPartCache = setmetatable({}, { __mode = "k" });
+	nd.hparts = setmetatable({}, { __mode = "k" });
 	nd.charBound = nil;
 	nd.init = false;
 end;
@@ -494,46 +525,74 @@ function nd.isMainMods(inst)
 	end;
 	return true;
 end;
-function nd.startDoors()
-	if nd.roomConn then
+function nd.tryOpenCurrentDoor()
+	local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+	local lr = gd and gd:FindFirstChild("LatestRoom");
+	local cr = workspace:FindFirstChild("CurrentRooms");
+	if not lr or not cr then
 		return;
 	end;
-	nd.lastDoorRoom = nd.lastDoorRoom or nil;
-	nd.roomConn = nd.rs.RenderStepped:Connect(function()
-		local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
-		local lr = gd and gd:FindFirstChild("LatestRoom");
-		if not lr then
+
+	local room = cr:FindFirstChild(tostring(lr.Value));
+	local door = room and room:FindFirstChild("Door");
+	local ev = door and door:FindFirstChild("ClientOpen");
+	if not ev then
+		return;
+	end;
+
+	local md = tonumber(nd.doorDist) or math.huge;
+	if md < math.huge then
+		local root = nd.getRoot();
+		local pos = nd.getDoorPos(door);
+		if not root or not pos or (root.Position - pos).Magnitude > md then
 			return;
 		end;
-		local cr = workspace:FindFirstChild("CurrentRooms");
-		if not cr then
-			return;
-		end;
-		local r = cr:FindFirstChild(tostring(lr.Value));
-		if not r then
-			return;
-		end;
-		local d = r:FindFirstChild("Door");
-		if not d then
-			return;
-		end;
-		local ev = d:FindFirstChild("ClientOpen");
-		if not ev then
-			return;
-		end;
-		local md = tonumber(nd.doorDist) or math.huge;
-		if md < math.huge then
-			local root = nd.getRoot();
-			local pos = nd.getDoorPos(d);
-			if not root or not pos or (root.Position - pos).Magnitude > md then
-				return;
-			end;
-		end;
-		pcall(function()
-			ev:FireServer();
-		end);
+	end;
+
+	local now = os.clock();
+	if nd.lastDoorInst == door and now - (nd.lastDoorFireAt or 0) < 0.75 then
+		return;
+	end;
+
+	nd.lastDoorInst = door;
+	nd.lastDoorFireAt = now;
+	pcall(function()
+		ev:FireServer();
 	end);
 end;
+
+function nd.queueDoorOpen()
+	nd.tryOpenCurrentDoor();
+	nd.Delay(0.08, nd.tryOpenCurrentDoor);
+	nd.Delay(0.25, nd.tryOpenCurrentDoor);
+end;
+
+function nd.startDoors()
+	local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+	local lr = gd and gd:FindFirstChild("LatestRoom");
+	local cr = workspace:FindFirstChild("CurrentRooms");
+	if not lr or not cr then
+		return;
+	end;
+
+	if nd.roomConnSource ~= lr then
+		nd.roomConnSource = lr;
+		nd.replaceConn("roomConn", lr:GetPropertyChangedSignal("Value"):Connect(function()
+			nd.lastDoorInst = nil;
+			task.defer(nd.queueDoorOpen);
+		end));
+	end;
+
+	if nd.roomChildSource ~= cr then
+		nd.roomChildSource = cr;
+		nd.replaceConn("roomChildConn", cr.ChildAdded:Connect(function()
+			task.defer(nd.queueDoorOpen);
+		end));
+	end;
+
+	task.defer(nd.queueDoorOpen);
+end;
+
 function nd.killJam()
 	local main = __lt.cm("SoundService", "FindFirstChild", "Main");
 	local j = main and main:FindFirstChild("Jamming");
@@ -581,9 +640,24 @@ function nd.setupChar(ch)
 	if not ch then
 		return;
 	end;
-	nd.keepAttr(ch, "Invincibility", true);
-	nd.keepAttr(ch, "CanSlide", true);
-	nd.keepAttr(ch, "CanJump", true);
+
+	for key, value in pairs({
+		Invincibility = true,
+		CanSlide = true,
+		CanJump = true,
+		Oxygen = 100,
+		Stunned = false,
+		Ragdoll = false,
+		Downed = false,
+		Dead = false,
+		Giggled = false,
+		ScreechOn = false,
+		Hiding = false,
+		InCutscene = false,
+		Alive = true,
+	}) do
+		nd.keepAttr(ch, key, value);
+	end;
 end;
 function nd.drop()
 	local c = nd.gch();
@@ -658,46 +732,42 @@ function nd.bindChar()
 end;
 
 function nd.attrLoop()
-	if nd.attrConn then
-		return;
+	nd.disconnectConn(nd.attrConn);
+	nd.attrConn = nil;
+	local c = nd.gch();
+	if c then
+		nd.bindCharacter(c);
 	end;
-	nd.attrConn = nd.rs.RenderStepped:Connect(function()
-		local p = nd.lp();
-		local c = p and p.Character;
-		if not c then
-			return;
-		end;
-		if c:GetAttribute("Invincibility") ~= true then
-			c:SetAttribute("Invincibility", true);
-		end;
-		if c:GetAttribute("CanSlide") ~= true then
-			c:SetAttribute("CanSlide", true);
-		end;
-		if c:GetAttribute("CanJump") ~= true then
-			c:SetAttribute("CanJump", true);
-		end;
-	end);
 end;
 
 function nd.crouchLoop()
 	if nd.crouchConn then
 		return;
 	end;
+
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local cr = remf and remf:FindFirstChild("Crouch");
 	if not cr then
 		return;
 	end;
-	nd.crouchConn = nd.rs.RenderStepped:Connect(function()
-		local p = nd.lp();
-		local c = p and p.Character;
-		if not c then
+
+	local acc = 1;
+	nd.replaceConn("crouchConn", nd.rs.Heartbeat:Connect(function(dt)
+		acc += tonumber(dt) or 0;
+		if acc < 0.5 then
 			return;
 		end;
+		acc = 0;
+
+		local p = nd.lp();
+		if not (p and p.Character) then
+			return;
+		end;
+
 		pcall(function()
 			cr:FireServer(true, false);
 		end);
-	end);
+	end));
 end;
 
 function nd.muteUiFrame(f)
@@ -955,7 +1025,7 @@ nd.Delay = task.delay;
 nd.Spawn = task.spawn;
 nd.Insert = table.insert;
 nd.Concat = table.concat;
-nd.promptPartCache = {};
+nd.promptPartCache = setmetatable({}, { __mode = "k" });
 nd.glitchMarks = {
 	"̶",
 	"̷",
@@ -971,7 +1041,7 @@ nd.glitchMarks = {
 	"͟",
 	"͢"
 };
-nd.hparts = {};
+nd.hparts = setmetatable({}, { __mode = "k" });
 nd.hconn = nd.hconn;
 function nd.hb(n)
 	for _ = 1, n or 1 do
@@ -1116,10 +1186,19 @@ if nd.isPoopSploit then
 		s.proxy = nil;
 	end;
 
+	local cooldown = setmetatable({}, { __mode = "k" });
+
 	local function begin(pp, o)
 		if not (pp and pp.Parent) then
 			return false;
 		end;
+
+		local now = os.clock();
+		local minInterval = tonumber(o.minInterval) or 0.12;
+		if minInterval > 0 and now - (cooldown[pp] or 0) < minInterval then
+			return false;
+		end;
+		cooldown[pp] = now;
 
 		local s = state[pp];
 		if not s then
@@ -1452,20 +1531,40 @@ end;
 
 function nd.trySet(obj, prop, val)
 	if not obj then
-		return;
+		return false;
 	end;
-	pcall(function()
+
+	local ok, current = pcall(function()
+		return obj[prop];
+	end);
+	if ok and current == val then
+		return false;
+	end;
+
+	local wrote = pcall(function()
 		obj[prop] = val;
 	end);
+	return wrote;
 end;
+
 function nd.tryAttr(obj, key, val)
 	if not obj then
-		return;
+		return false;
 	end;
-	pcall(function()
+
+	local ok, current = pcall(function()
+		return obj:GetAttribute(key);
+	end);
+	if ok and current == val then
+		return false;
+	end;
+
+	local wrote = pcall(function()
 		obj:SetAttribute(key, val);
 	end);
+	return wrote;
 end;
+
 function nd.getMainGame()
 	local u = nd.ui();
 	if not u then
@@ -1487,57 +1586,94 @@ function nd.getCtx()
 	nd.moduleFallback(mg, "main_game");
 	return nil, mg;
 end;
+function nd.setHumState(hum, state, enabled)
+	if not hum then
+		return false;
+	end;
+
+	local ok, current = pcall(function()
+		return hum:GetStateEnabled(state);
+	end);
+	if ok and current == enabled then
+		return false;
+	end;
+
+	return pcall(function()
+		hum:SetStateEnabled(state, enabled);
+	end);
+end;
+
 function nd.patchCtx()
 	local ctx = nd.getCtx();
 	if type(ctx) ~= "table" then
-		return;
+		return false;
 	end;
-	ctx.stunned = false;
-	ctx.disableMovement = false;
-	ctx.canUseItems = true;
-	ctx.hotbarenabled = true;
-	ctx.stopcam = false;
-	ctx.hiding = false;
-	ctx.hideplayers = 0;
+
+	local changed = false;
+	for key, value in pairs({
+		stunned = false,
+		disableMovement = false,
+		canUseItems = true,
+		hotbarenabled = true,
+		stopcam = false,
+		hiding = false,
+		hideplayers = 0,
+	}) do
+		if ctx[key] ~= value then
+			ctx[key] = value;
+			changed = true;
+		end;
+	end;
+
 	if ctx.hum then
-		nd.trySet(ctx.hum, "PlatformStand", false);
-		nd.trySet(ctx.hum, "Sit", false);
-		nd.trySet(ctx.hum, "AutoRotate", true);
-		pcall(function()
-			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true);
-			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, true);
-			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false);
-			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false);
-			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false);
-		end);
+		if nd.trySet(ctx.hum, "PlatformStand", false) then changed = true; end;
+		if nd.trySet(ctx.hum, "Sit", false) then changed = true; end;
+		if nd.trySet(ctx.hum, "AutoRotate", true) then changed = true; end;
+		if nd.setHumState(ctx.hum, Enum.HumanoidStateType.Jumping, true) then changed = true; end;
+		if nd.setHumState(ctx.hum, Enum.HumanoidStateType.Climbing, true) then changed = true; end;
+		if nd.setHumState(ctx.hum, Enum.HumanoidStateType.FallingDown, false) then changed = true; end;
+		if nd.setHumState(ctx.hum, Enum.HumanoidStateType.Ragdoll, false) then changed = true; end;
+		if nd.setHumState(ctx.hum, Enum.HumanoidStateType.PlatformStanding, false) then changed = true; end;
 	end;
+
+	return changed;
 end;
+
 function nd.patchHum(ch)
 	if not ch then
-		return;
+		return false;
 	end;
-	nd.tryAttr(ch, "Invincibility", true);
-	nd.tryAttr(ch, "CanSlide", true);
-	nd.tryAttr(ch, "CanJump", true);
-	nd.tryAttr(ch, "Oxygen", 100);
-	nd.tryAttr(ch, "Stunned", false);
-	nd.tryAttr(ch, "Ragdoll", false);
-	nd.tryAttr(ch, "Downed", false);
-	nd.tryAttr(ch, "Dead", false);
-	nd.tryAttr(ch, "Climbing", false);
+
+	local changed = false;
+	for key, value in pairs({
+		Invincibility = true,
+		CanSlide = true,
+		CanJump = true,
+		Oxygen = 100,
+		Stunned = false,
+		Ragdoll = false,
+		Downed = false,
+		Dead = false,
+		Climbing = false,
+	}) do
+		if nd.tryAttr(ch, key, value) then
+			changed = true;
+		end;
+	end;
+
 	local hum = ch:FindFirstChildOfClass("Humanoid");
 	if hum then
-		nd.trySet(hum, "PlatformStand", false);
-		nd.trySet(hum, "Sit", false);
-		nd.trySet(hum, "AutoRotate", true);
-		pcall(function()
-			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true);
-			hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, true);
-			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false);
-			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false);
-			hum:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false);
-		end);
+		if nd.trySet(hum, "PlatformStand", false) then changed = true; end;
+		if nd.trySet(hum, "Sit", false) then changed = true; end;
+		if nd.trySet(hum, "AutoRotate", true) then changed = true; end;
+		if nd.setHumState(hum, Enum.HumanoidStateType.Jumping, true) then changed = true; end;
+		if nd.setHumState(hum, Enum.HumanoidStateType.Climbing, true) then changed = true; end;
+		if nd.setHumState(hum, Enum.HumanoidStateType.Ragdoll, false) then changed = true; end;
+		if nd.setHumState(hum, Enum.HumanoidStateType.FallingDown, false) then changed = true; end;
+		if nd.setHumState(hum, Enum.HumanoidStateType.PlatformStanding, false) then changed = true; end;
 	end;
+
+	return changed;
 end;
 nd.lookDownHold = nd.lookDownHold or 0;
 nd.lookDownPart = nd.lookDownPart or nil;
@@ -1587,15 +1723,41 @@ function nd.forceLookDown(ctx)
 	nd.lookDownHold = tick() + 0.8;
 end;
 function nd.findLookman()
-	local root = workspace:FindFirstChild("CurrentRooms") or workspace;
-	for _, d in root:QueryDescendants("Instance") do
-		local n = tostring(d.Name or ""):lower();
-		if n:find("lookman") or n:find("look man") or n:find("look_man") then
-			return d;
+	if nd.lookDownPart and nd.lookDownPart.Parent then
+		return nd.lookDownPart;
+	end;
+
+	local roots = {};
+	local cr = workspace:FindFirstChild("CurrentRooms");
+	local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+	local lr = gd and gd:FindFirstChild("LatestRoom");
+	if cr and lr then
+		local room = cr:FindFirstChild(tostring(lr.Value));
+		if room then
+			table.insert(roots, room);
 		end;
 	end;
+
+	local entities = workspace:FindFirstChild("Entities");
+	if entities then
+		table.insert(roots, entities);
+	end;
+	if workspace.CurrentCamera then
+		table.insert(roots, workspace.CurrentCamera);
+	end;
+
+	for _, root in roots do
+		for _, d in root:QueryDescendants("Instance") do
+			local n = tostring(d.Name or ""):lower();
+			if n:find("lookman") or n:find("look man") or n:find("look_man") then
+				return d;
+			end;
+		end;
+	end;
+
 	return nil;
 end;
+
 function nd.lookmanTick()
 	if nd.lookDownHold > tick() then
 		nd.forceLookDown();
@@ -2048,28 +2210,8 @@ function nd.delDanger()
 	end;
 end;
 function nd.extraLoop()
-	if nd.extraConn then
-		return;
-	end;
-	local acc = 0;
-	local slow = 0;
-	nd.replaceConn("extraConn", nd.rs.Heartbeat:Connect(function(dt)
-		acc += tonumber(dt) or 0;
-		slow += tonumber(dt) or 0;
-		if acc >= 0.2 then
-			acc = 0;
-			local c = nd.gch();
-			nd.patchHum(c);
-			nd.patchCtx();
-			nd.lookmanTick();
-		end;
-		if slow >= 6 then
-			slow = 0;
-			nd.promptExtreme();
-			nd.muteRemoteRoots();
-			nd.hardDangerSweep();
-		end;
-	end));
+	nd.disconnectConn(nd.extraConn);
+	nd.extraConn = nil;
 end;
 
 nd.extraNoopNames = {
@@ -2270,33 +2412,46 @@ function nd.muteRemoteRoots()
 	nd.watchRemoteRoot(fr and fr:FindFirstChild("ClientRemote"), "frWatch2");
 end;
 function nd.hardCtx()
-	nd.patchCtx();
+	local changed = nd.patchCtx() == true;
 	local ctx = nd.getCtx();
 	if type(ctx) ~= "table" then
 		return;
 	end;
-	ctx.stunned = false;
-	ctx.disableMovement = false;
-	ctx.minigaming = false;
-	ctx.stopcam = false;
-	ctx.hideplayers = 0;
-	ctx.chase = false;
-	ctx.chaseMove = false;
-	ctx.hiding = false;
-	if type(ctx.update) == "function" then
+
+
+	local wasCrouched = ctx.hiding == true or ctx.crouching == true or ctx.crouched == true;
+	for key, value in pairs({
+		stunned = false,
+		disableMovement = false,
+		minigaming = false,
+		stopcam = false,
+		hideplayers = 0,
+		chase = false,
+		chaseMove = false,
+		hiding = false,
+	}) do
+		if ctx[key] ~= value then
+			ctx[key] = value;
+			changed = true;
+		end;
+	end;
+
+	if changed and type(ctx.update) == "function" then
 		pcall(ctx.update);
 	end;
-	if type(ctx.crouch) == "function" then
+	if wasCrouched and type(ctx.crouch) == "function" then
 		pcall(ctx.crouch, false);
 	end;
 end;
+
 function nd.hardChar()
 	local c = nd.gch();
 	nd.patchHum(c);
 	if not c then
 		return;
 	end;
-	for k, v in {
+
+	for key, value in pairs({
 		Invincibility = true,
 		CanSlide = true,
 		CanJump = true,
@@ -2310,17 +2465,17 @@ function nd.hardChar()
 		ScreechOn = false,
 		Hiding = false,
 		InCutscene = false,
-		Alive = true
-	} do
-		nd.tryAttr(c, k, v);
+		Alive = true,
+	}) do
+		nd.tryAttr(c, key, value);
 	end;
+
 	local root = c.PrimaryPart or c:FindFirstChild("HumanoidRootPart");
-	if root then
+	if root and root.Anchored then
 		nd.trySet(root, "Anchored", false);
-		nd.trySet(root, "AssemblyLinearVelocity", Vector3.new());
-		nd.trySet(root, "Velocity", Vector3.new());
 	end;
 end;
+
 function nd.hideGuiHard()
 	local now = os.clock();
 	if (nd.hideGuiAt or 0) > now then
@@ -2477,16 +2632,29 @@ function nd.hardDangerOne(d)
 	if not d then
 		return;
 	end;
+
 	local n = tostring(d.Name or ""):lower();
 	if nd.isFigureInst(d) then
 		return;
 	end;
-	if nd.delExact[n] or n:find("screech") or n:find("dread") or n:find("seekeye") or n:find("glitchcube") or n:find("hallucination") or n:find("jumpscare") then
+
+	local shouldDelete = nd.delExact[n] == true;
+	if not shouldDelete then
+		for _, partName in nd.delPart do
+			if n:find(partName) then
+				shouldDelete = true;
+				break;
+			end;
+		end;
+	end;
+
+	if shouldDelete then
 		pcall(function()
 			d:Destroy();
 		end);
 		return;
 	end;
+
 	if d:IsA("ParticleEmitter") and (n:find("spark") or n:find("scare") or n:find("fog")) then
 		nd.trySet(d, "Enabled", false);
 	elseif d:IsA("Sound") then
@@ -2494,47 +2662,49 @@ function nd.hardDangerOne(d)
 	end;
 end;
 function nd.watchDangerRoot(root, key)
+	local rootKey = key .. "Root";
 	if not root then
+		nd.disconnectConn(nd[key]);
+		nd[key] = nil;
+		nd[rootKey] = nil;
 		return;
 	end;
-	nd.dangerSeenRoots = nd.dangerSeenRoots or setmetatable({}, { __mode = "k" });
-	if not nd.dangerSeenRoots[root] then
-		nd.dangerSeenRoots[root] = true;
-		nd.replaceConn(key, root.DescendantAdded:Connect(function(d)
-			task.defer(nd.hardDangerOne, d);
-		end));
+
+	if nd[rootKey] == root and typeof(nd[key]) == "RBXScriptConnection" and nd[key].Connected then
+		return;
 	end;
+
+	nd.disconnectConn(nd[key]);
+	nd[key] = nil;
+	nd[rootKey] = root;
+
+	for _, d in root:QueryDescendants("Instance") do
+		nd.hardDangerOne(d);
+	end;
+
+	nd.replaceConn(key, root.DescendantAdded:Connect(function(d)
+		task.defer(nd.hardDangerOne, d);
+	end));
 end;
+
 function nd.hardDangerSweep()
-	local now = os.clock();
 	nd.watchDangerRoot(workspace:FindFirstChild("CurrentRooms"), "dangerRoomsWatch");
 	nd.watchDangerRoot(workspace:FindFirstChild("Entities"), "dangerEntWatch");
 	nd.watchDangerRoot(workspace.CurrentCamera, "dangerCamWatch");
-	if (nd.dangerSweepAt or 0) > now then
-		return;
-	end;
-	nd.dangerSweepAt = now + 15;
-	nd.delDanger();
-	local roots = {
-		workspace:FindFirstChild("CurrentRooms"),
-		workspace:FindFirstChild("Entities"),
-		workspace.CurrentCamera
-	};
+
 	for _, d in workspace:GetChildren() do
 		nd.hardDangerOne(d);
 	end;
-	for _, root in roots do
-		if root then
-			for _, d in root:QueryDescendants("Instance") do
-				nd.hardDangerOne(d);
-			end;
-		end;
-	end;
 end;
+
 function nd.hardBypassLoop()
 	if nd.hardConn then
 		return;
 	end;
+
+	nd.disconnectConn(nd.gcScanConn);
+	nd.gcScanConn = nil;
+
 	local fast = 0;
 	local mid = 0;
 	local slow = 0;
@@ -2543,19 +2713,22 @@ function nd.hardBypassLoop()
 		fast += dt;
 		mid += dt;
 		slow += dt;
-		if fast >= 0.12 then
+
+		if fast >= 0.25 then
 			fast = 0;
 			nd.hardChar();
 			nd.hardCtx();
 			nd.lookmanTick();
 		end;
-		if mid >= 6 then
+
+		if mid >= 8 then
 			mid = 0;
 			nd.muteFx();
 			nd.hideGuiHard();
 			nd.clearCameraFx();
 		end;
-		if slow >= 15 then
+
+		if slow >= 30 then
 			slow = 0;
 			nd.muteRemoteRoots();
 			nd.hookMoreMods();
@@ -2563,18 +2736,8 @@ function nd.hardBypassLoop()
 			nd.promptExtreme();
 		end;
 	end));
-	if not nd.gcScanConn then
-		local acc = 0;
-		nd.replaceConn("gcScanConn", nd.rs.Heartbeat:Connect(function(dt)
-			acc += tonumber(dt) or 0;
-			if acc < 30 then
-				return;
-			end;
-			acc = 0;
-			nd.hookGcFuncs();
-		end));
-	end;
 end;
+
 function nd.hardBypasses()
 	nd.hardChar();
 	nd.hardCtx();
@@ -2616,9 +2779,7 @@ function nd.plugRun(ctx)
 	nd.hookBadRemotes();
 	nd.wireMinis();
 	nd.hookMoreMods();
-	nd.extraLoop();
 	nd.hardBypasses();
-	nd.delDanger();
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local a90Rem = remf and remf:FindFirstChild("A90");
 	if a90Rem and (not nd.a90Hook) and (not nd.a90Attr) then
