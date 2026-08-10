@@ -205,6 +205,139 @@ function nd.cleanupRuntime()
 	nd.charBound = nil;
 	nd.init = false;
 end;
+nd.cleanup = nd.cleanupRuntime;
+if ndWasInit then
+	nd.cleanupRuntime();
+	nd.init = true;
+end;
+nd.rs = __lt.cs("RunService", __lt.cr);
+nd.plrs = __lt.cs("Players", __lt.cr);
+nd.ss = __lt.cs("SoundService", __lt.cr);
+nd.rsrv = __lt.cs("ReplicatedStorage", __lt.cr);
+nd.hf = hookfunction;
+nd.hm = hookmetamethod;
+nd.hasHook = typeof(nd.hf) == "function";
+nd.reqBad = nd.reqBad or setmetatable({}, { __mode = "k" });
+nd.safeRequire = nd.safeRequire or function(ms)
+	if not (ms and ms:IsA("ModuleScript")) then
+		return false, nil;
+	end;
+	if nd.reqBad[ms] then
+		return false, nil;
+	end;
+	if type(require) ~= "function" then
+		nd.reqBad[ms] = true;
+		return false, nil;
+	end;
+	local ok, ret = pcall(require, ms);
+	if ok then
+		return true, ret;
+	end;
+	nd.reqBad[ms] = true;
+	return false, nil;
+end;
+nd.safeA90 = nd.safeA90 or function(...)
+	local p = nd.lp and nd.lp();
+	local c = p and p.Character;
+	if c then
+		c:SetAttribute("Invincibility", true);
+	end;
+	if nd.a90UiMute then
+		nd.a90UiMute();
+	end;
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local rem = remf and remf:FindFirstChild("A90");
+	if rem then
+		pcall(function()
+			rem:FireServer("didnt");
+		end);
+	end;
+end;
+nd.promptTargets = {
+	"goldpile",
+	"lock",
+	"door",
+	"toolbox",
+	"lever",
+	"bandage",
+	"button",
+	"metal",
+	"knobs",
+	"knob",
+	"livebreakerpolepickup",
+	"drawerdoors",
+	"hole",
+	"rolltopcontainer",
+	"lockpick",
+	"chestbox",
+	"crucifix",
+	"skeletonkey",
+	"plant",
+	"shears",
+	"cellar",
+	"cuttablevines",
+	"skulllock",
+	"wheel",
+	"starvial",
+	"starbottle",
+	"livehintbook",
+	"libraryhintpaper",
+};
+nd.promptFindTargets = {
+	"stardust",
+	"fuse",
+	"keyobtain",
+	"lotus",
+};
+nd.espExactTargets = {
+	"rushnew",
+	"keyobtain",
+	"a60",
+	"a120",
+	"backdoorrush",
+	"livehintbook",
+	"libraryhintpaper",
+};
+nd.otherCmds = {
+	{
+		"autodelfind",
+		"giggle"
+	},
+	{
+		"autodel",
+		"egg"
+	},
+	{
+		"autodel",
+		"snare"
+	},
+	{
+		"autodelfind",
+		"surge"
+	},
+	{
+		"autodel",
+		"sideroomdupe"
+	},
+	{
+		"autodel",
+		"sideroomspace"
+	},
+	{
+		"autodel",
+		"candle"
+	},
+	{
+		"strengthen",
+		"inf"
+	},
+	{
+		"ipp"
+	},
+	{
+		"lenpp"
+	}
+};
 function nd.safeCmdRun(args)
 	local ctx = nd.cmdCtx;
 	if type(ctx) == "table" and type(ctx.run) == "function" then
@@ -1560,6 +1693,7 @@ function nd.muteFx()
 	end;
 	nd.a90UiMute(); nd.spiderUiMute();
 end;
+nd.promptPatchEnabled = false;
 function nd.patchPrompt(pp)
 	if not nd.promptPatchEnabled then
 		return;
