@@ -118,12 +118,18 @@ end;
 local G = getgenv and getgenv() or _G;
 G.__nadoors = G.__nadoors or {};
 G.__nadoorsCamHook = G.__nadoorsCamHook or function(ctx, mag, rou, fi, fo, p6, p7)
-	if type(mag) == "number" and mag >= 10 then
-		mag = 0;
-	end;
 	local env = getgenv and getgenv() or _G;
 	local state = env and env.__nadoors;
 	local old = state and state.camOld;
+	if state and state.enabled == false then
+		if type(old) == "function" then
+			return old(ctx, mag, rou, fi, fo, p6, p7);
+		end;
+		return;
+	end;
+	if type(mag) == "number" and mag >= 10 then
+		mag = 0;
+	end;
 	if type(old) == "function" then
 		return old(ctx, mag, rou, fi, fo, p6, p7);
 	end;
@@ -222,18 +228,20 @@ nd.safeRequire = nd.safeRequire or function(ms)
 	if not (ms and ms:IsA("ModuleScript")) then
 		return false, nil;
 	end;
-	if nd.reqBad[ms] then
+	local failedAt = nd.reqBad[ms];
+	if type(failedAt) == "number" and os.clock() - failedAt < 2 then
 		return false, nil;
 	end;
 	if type(require) ~= "function" then
-		nd.reqBad[ms] = true;
+		nd.reqBad[ms] = os.clock();
 		return false, nil;
 	end;
 	local ok, ret = pcall(require, ms);
 	if ok then
+		nd.reqBad[ms] = nil;
 		return true, ret;
 	end;
-	nd.reqBad[ms] = true;
+	nd.reqBad[ms] = os.clock();
 	return false, nil;
 end;
 nd.safeA90 = nd.safeA90 or function(...)
@@ -1084,6 +1092,7 @@ function nd.getPromptPart(pp)
 	nd.promptPartCache[pp] = part or false;
 	return part;
 end;
+nd.originalFpp = nd.originalFpp or nd._env.fireproximityprompt
 nd.isPoopSploit = true
 if nd.isPoopSploit then
 	local pps = __lt.cs("ProximityPromptService", __lt.cr);
@@ -1406,7 +1415,7 @@ if nd.isPoopSploit then
 		end;
 	end;
 
-	nd._env.fireproximityprompt = function(target, opts)
+	nd.customFpp = function(target, opts)
 		local o = toOpts(opts);
 		local list = {};
 
@@ -1440,6 +1449,7 @@ if nd.isPoopSploit then
 
 		return #list > 0;
 	end;
+	nd._env.fireproximityprompt = nd.customFpp;
 end;
 function nd.doorDistCmd(...)
 	local vals = {...};
@@ -2251,8 +2261,7 @@ function nd.hardChar()
 		Giggled = false,
 		ScreechOn = false,
 		Hiding = false,
-		InCutscene = false,
-		Alive = true
+
 	} do
 		nd.tryAttr(c, k, v);
 	end;
@@ -2282,6 +2291,32 @@ function nd.hideGuiHard()
 		nd.replaceConn("uiHardWatch", u.DescendantAdded:Connect(function(d) task.defer(nd.hideGuiOne, d); end));
 	end;
 end;
+function nd.hideGuiOne(d)
+	if not d then
+		return;
+	end;
+	local n = tostring(d.Name or ""):lower();
+	if not (n:find("jumpscare", 1, true)
+		or n:find("dread", 1, true)
+		or n:find("vignette", 1, true)
+		or n:find("liveachievement", 1, true)
+		or n:find("liveprogress", 1, true)
+		or n:find("livecandy", 1, true))
+	then
+		return;
+	end;
+	if d:IsA("GuiObject") then
+		nd.trySet(d, "Visible", false);
+	end;
+	if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+		nd.trySet(d, "ImageTransparency", 1);
+	elseif d:IsA("TextLabel") or d:IsA("TextButton") then
+		nd.trySet(d, "TextTransparency", 1);
+	elseif d:IsA("Frame") then
+		nd.trySet(d, "BackgroundTransparency", 1);
+	end;
+end;
+
 function nd.clearCameraOne(d)
 	if not d then return; end;
 	local n = tostring(d.Name or ""):lower();
@@ -2389,48 +2424,906 @@ function nd.hardBypasses()
 	nd.hardBypassLoop();
 end;
 
+
+nd.enabled = false;
+nd.loaded = nd.loaded == true;
+nd.jobsConfigured = nd.jobsConfigured == true;
+if nd._env and nd.originalFpp and nd._env.fireproximityprompt == nd.customFpp then
+	nd._env.fireproximityprompt = nd.originalFpp;
+end;
+nd.promptTargets = {
+	"goldpile",
+	"lock",
+	"toolbox",
+	"lever",
+	"bandage",
+	"metal",
+	"knobs",
+	"knob",
+	"livebreakerpolepickup",
+	"drawerdoors",
+	"hole",
+	"rolltopcontainer",
+	"lockpick",
+	"chestbox",
+	"crucifix",
+	"skeletonkey",
+	"plant",
+	"shears",
+	"cellar",
+	"cuttablevines",
+	"skulllock",
+	"wheel",
+	"starvial",
+	"starbottle",
+	"livehintbook",
+	"libraryhintpaper",
+	"pizza",
+};
+nd.otherCmds = {
+	{ "autodelfind", "giggle" },
+	{ "autodel", "egg" },
+	{ "autodelfind", "surge" },
+	{ "autodel", "sideroomdupe" },
+	{ "autodel", "sideroomspace" },
+	{ "strengthen", "inf" },
+	{ "ipp" },
+	{ "lenpp" },
+};
+nd.noModNames = {
+	a90 = true,
+	spiderjumpscare = true,
+	screech = true,
+	screech_noob = true,
+	dread = true,
+	lookman = true,
+	lookmanmodule = true,
+};
+nd.extraNoopNames = {};
+nd.blockRemoteNames = {
+	a90 = true,
+	screech = true,
+	dread = true,
+	lookman = true,
+	lookmanmodule = true,
+	spiderjumpscare = true,
+};
+nd.badExact = {
+	a90 = true,
+	screech = true,
+	lookman = true,
+	lookmanmodule = true,
+};
+nd.delExact = {
+	snare = true,
+	giggle = true,
+	surge = true,
+	egg = true,
+	seekslop = true,
+	eyes = true,
+	dread = true,
+	screech = true,
+	a90 = true,
+};
+nd.delPart = {
+	"jumpscare",
+	"screech",
+	"dread",
+	"sanity",
+	"coldbox",
+};
+
+function nd.isProgressionBusy()
+	local c = nd.gch();
+	if c then
+		if c:GetAttribute("InCutscene") == true
+			or c:GetAttribute("Animating") == true
+			or c:GetAttribute("InMinigame") == true
+		then
+			return true;
+		end;
+	end;
+	local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+	local v = gd and gd:FindFirstChild("InCutscene");
+	if v and v:IsA("BoolValue") and v.Value == true then
+		return true;
+	end;
+	return false;
+end;
+
+function nd.patchCtx()
+	local ctx = nd.getCtx();
+	if type(ctx) ~= "table" then
+		return;
+	end;
+	ctx.stunned = false;
+	local busy = nd.isProgressionBusy();
+	if not busy then
+		ctx.disableMovement = false;
+		ctx.canUseItems = true;
+		ctx.hotbarenabled = true;
+	end;
+	if ctx.hum and not busy then
+		nd.trySet(ctx.hum, "PlatformStand", false);
+		nd.trySet(ctx.hum, "Sit", false);
+		nd.trySet(ctx.hum, "AutoRotate", true);
+		pcall(function()
+			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true);
+			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, true);
+			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false);
+			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false);
+			ctx.hum:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false);
+		end);
+	end;
+end;
+
+function nd.patchHum(ch)
+	if not ch then
+		return;
+	end;
+	nd.tryAttr(ch, "Invincibility", true);
+	nd.tryAttr(ch, "CanSlide", true);
+	nd.tryAttr(ch, "CanJump", true);
+	nd.tryAttr(ch, "Oxygen", 100);
+	if nd.isProgressionBusy() then
+		return;
+	end;
+	nd.tryAttr(ch, "Stunned", false);
+	nd.tryAttr(ch, "Ragdoll", false);
+	local hum = ch:FindFirstChildOfClass("Humanoid");
+	if hum then
+		nd.trySet(hum, "PlatformStand", false);
+		nd.trySet(hum, "Sit", false);
+		nd.trySet(hum, "AutoRotate", true);
+		pcall(function()
+			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true);
+			hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, true);
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false);
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false);
+			hum:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false);
+		end);
+	end;
+end;
+
+function nd.killJam()
+	local main = __lt.cm("SoundService", "FindFirstChild", "Main");
+	local j = main and main:FindFirstChild("Jamming");
+	if j and j:IsA("Sound") then
+		nd.trySet(j, "Volume", 0);
+		pcall(function() j:Stop(); end);
+	end;
+	local u = nd.ui();
+	if not u then
+		return;
+	end;
+	for _, d in u:GetDescendants() do
+		local n = tostring(d.Name or ""):lower();
+		if n == "jam" or n == "jamming" then
+			if d:IsA("Sound") then
+				nd.trySet(d, "Volume", 0);
+				pcall(function() d:Stop(); end);
+			elseif d:IsA("GuiObject") then
+				nd.trySet(d, "Visible", false);
+			end;
+		end;
+	end;
+end;
+
+function nd.fixScreech()
+end;
+
+function nd.startDoors()
+	nd.disconnectConn(nd.roomConn);
+	nd.roomConn = nil;
+	if not nd.rs then
+		return;
+	end;
+	local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+	local latestRoom = gd and gd:FindFirstChild("LatestRoom");
+	local currentRooms = workspace:FindFirstChild("CurrentRooms");
+	local cachedRoomValue;
+	local cachedDoor;
+	local cachedClientOpen;
+	local function refreshDoor()
+		if not latestRoom or not latestRoom.Parent then
+			gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+			latestRoom = gd and gd:FindFirstChild("LatestRoom");
+		end;
+		if not currentRooms or not currentRooms.Parent then
+			currentRooms = workspace:FindFirstChild("CurrentRooms");
+		end;
+		if not (latestRoom and currentRooms) then
+			cachedRoomValue = nil;
+			cachedDoor = nil;
+			cachedClientOpen = nil;
+			return;
+		end;
+		local roomValue = latestRoom.Value;
+		if roomValue == cachedRoomValue
+			and cachedDoor and cachedDoor.Parent
+			and cachedClientOpen and cachedClientOpen.Parent
+		then
+			return;
+		end;
+		cachedRoomValue = roomValue;
+		local room = currentRooms:FindFirstChild(tostring(roomValue));
+		cachedDoor = room and room:FindFirstChild("Door");
+		local ev = cachedDoor and cachedDoor:FindFirstChild("ClientOpen");
+		cachedClientOpen = ev and ev:IsA("RemoteEvent") and ev or nil;
+	end;
+	refreshDoor();
+	nd.roomConn = nd.rs.RenderStepped:Connect(function()
+		if not nd.enabled then
+			return;
+		end;
+		refreshDoor();
+		local door = cachedDoor;
+		local ev = cachedClientOpen;
+		if not (door and ev) then
+			return;
+		end;
+		local md = tonumber(nd.doorDist) or math.huge;
+		if md < math.huge then
+			local root = nd.getRoot();
+			local pos = nd.getDoorPos(door);
+			if not root or not pos or (root.Position - pos).Magnitude > md then
+				return;
+			end;
+		end;
+		pcall(ev.FireServer, ev);
+	end);
+end;
+
+function nd.attrLoop()
+	nd.disconnectConn(nd.attrConn);
+	nd.attrConn = nil;
+end;
+
+function nd.crouchLoop()
+	nd.disconnectConn(nd.crouchConn);
+	nd.crouchConn = nil;
+	if not nd.rs then
+		return;
+	end;
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local rem = remf and remf:FindFirstChild("Crouch");
+	local retryAt = 0;
+	nd.crouchConn = nd.rs.RenderStepped:Connect(function()
+		if not nd.enabled then
+			return;
+		end;
+		if not (rem and rem.Parent and rem:IsA("RemoteEvent")) then
+			local now = os.clock();
+			if now < retryAt then
+				return;
+			end;
+			retryAt = now + 1;
+			if not remf or not remf.Parent then
+				remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+			end;
+			rem = remf and remf:FindFirstChild("Crouch");
+			if not (rem and rem:IsA("RemoteEvent")) then
+				return;
+			end;
+		end;
+		pcall(rem.FireServer, rem, true, false);
+	end);
+end;
+
+function nd.forceLookDown(ctx)
+	if not nd.enabled or nd.isProgressionBusy() then
+		return;
+	end;
+	ctx = ctx or nd.getCtx();
+	local dir = nd.getLookDir();
+	if type(ctx) == "table" then
+		if type(ctx.targetCameraTowardsDirection) == "function" then
+			pcall(ctx.targetCameraTowardsDirection, dir);
+		end;
+		local ch = ctx.char or nd.gch();
+		local root = ch and (ch.PrimaryPart or ch:FindFirstChild("HumanoidRootPart"));
+		local rx, ry = CFrame.new(Vector3.new(), dir):ToOrientation();
+		ctx.camlockHead = true;
+		ctx.camlock = {
+			y = math.deg(rx),
+			x = math.deg(ry),
+			z = 0,
+			last = tick() + 0.6,
+			pos = root and root.Position or Vector3.new()
+		};
+		ctx.ay = -88;
+		ctx.ay_t = -88;
+		ctx.az = 0;
+		ctx.az_t = 0;
+		if type(ctx.update) == "function" then
+			pcall(ctx.update);
+		end;
+	end;
+end;
+
+function nd.silenceSound(s)
+	if not (s and s:IsA("Sound")) then
+		return;
+	end;
+	local n = s.Name:lower();
+	if n:find("oxygen", 1, true)
+		or n:find("jamming", 1, true)
+		or n:find("jumpscare", 1, true)
+		or n:find("screech", 1, true)
+		or n:find("dread", 1, true)
+		or n:find("sanity", 1, true)
+		or n:find("cold", 1, true)
+	then
+		nd.trySet(s, "Volume", 0);
+		pcall(function() s:Stop(); end);
+	end;
+end;
+
+function nd.muteFx()
+	local light = __lt.cm("Lighting", "FindFirstChild", "OxygenCC");
+	if light then
+		nd.trySet(light, "Contrast", 0);
+		nd.trySet(light, "Saturation", 0);
+		nd.trySet(light, "Brightness", 0);
+	end;
+	local blur = __lt.cm("Lighting", "FindFirstChild", "OxygenBlur");
+	if blur then
+		nd.trySet(blur, "Size", 0);
+		nd.trySet(blur, "Enabled", false);
+	end;
+	local main = __lt.cm("SoundService", "FindFirstChild", "Main");
+	if main then
+		local eq = main:FindFirstChild("OxygenEqualizer");
+		if eq then
+			nd.trySet(eq, "HighGain", 0);
+			nd.trySet(eq, "MidGain", 0);
+			nd.trySet(eq, "LowGain", 0);
+			nd.trySet(eq, "Enabled", false);
+		end;
+	end;
+	nd.a90UiMute();
+	nd.spiderUiMute();
+end;
+
+function nd.clearCameraOne(d)
+	if not d then
+		return;
+	end;
+	local n = tostring(d.Name or ""):lower();
+	if n == "yea" or n == "livesanity" or n == "tempblur"
+		or n:find("jumpscare", 1, true)
+		or n:find("sanity", 1, true)
+		or n:find("dread", 1, true)
+	then
+		if d:IsA("GuiObject") then
+			nd.trySet(d, "Visible", false);
+		elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+			nd.trySet(d, "Enabled", false);
+		elseif d:IsA("BlurEffect") or d:IsA("ColorCorrectionEffect") then
+			nd.trySet(d, "Enabled", false);
+		elseif d:IsA("Sound") then
+			nd.silenceSound(d);
+		end;
+	elseif d:IsA("Sound") then
+		nd.silenceSound(d);
+	end;
+end;
+
+function nd.isDangerFamily(obj)
+	local cur = obj;
+	while cur and cur ~= game do
+		if nd.delExact[tostring(cur.Name or ""):lower()] then
+			return true;
+		end;
+		cur = cur.Parent;
+	end;
+	return false;
+end;
+
+function nd.hardDangerOne(d)
+	if not d or nd.isFigureInst(d) then
+		return;
+	end;
+	if nd.isLookman and nd.isLookman(d) then
+		nd.lookDownPart = d;
+		task.defer(nd.forceLookDown);
+	end;
+	local n = tostring(d.Name or ""):lower();
+	local danger = nd.isDangerFamily(d)
+		or n:find("jumpscare", 1, true) ~= nil
+		or n:find("screech", 1, true) ~= nil
+		or n:find("dread", 1, true) ~= nil;
+	if not danger then
+		if d:IsA("Sound") then
+			nd.silenceSound(d);
+		end;
+		return;
+	end;
+	if d:IsA("BasePart") then
+		nd.trySet(d, "CanTouch", false);
+		nd.trySet(d, "CanQuery", false);
+	elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+		nd.trySet(d, "Enabled", false);
+	elseif d:IsA("Sound") then
+		nd.silenceSound(d);
+	elseif d:IsA("GuiObject") then
+		nd.trySet(d, "Visible", false);
+	elseif d:IsA("BlurEffect") or d:IsA("ColorCorrectionEffect") then
+		nd.trySet(d, "Enabled", false);
+	end;
+end;
+
+function nd.hookMoreMods()
+end;
+
+function nd.muteRemoteRoots()
+end;
+
+function nd.noopModule()
+end;
+
+function nd.wireMinis()
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	if not remf then
+		return;
+	end;
+	local hb = remf:FindFirstChild("ClutchHeartbeat");
+	if hb and hb:IsA("RemoteEvent") and not nd.hbConn then
+		nd.replaceConn("hbConn", hb.OnClientEvent:Connect(function(id)
+			if not nd.enabled then
+				return;
+			end;
+			pcall(function() hb:FireServer(id, true); end);
+		end));
+	end;
+	local em = remf:FindFirstChild("EngageMinigame");
+	if em and em:IsA("RemoteEvent") and not nd.miniConn then
+		nd.replaceConn("miniConn", em.OnClientEvent:Connect(function(kind)
+			if not nd.enabled then
+				return;
+			end;
+			local k = tostring(kind or ""):lower();
+			if k:find("breaker", 1, true) then
+				task.defer(nd.autoBreaker);
+				nd.Delay(0.2, nd.autoBreaker);
+			end;
+		end));
+	end;
+	if not nd.remWatch then
+		nd.replaceConn("remWatch", remf.ChildAdded:Connect(function()
+			if nd.enabled then
+				nd.Delay(0.1, nd.wireMinis);
+			end;
+		end));
+	end;
+end;
+
+function nd.hookBadRemotes()
+	if nd.badRemHook then
+		return;
+	end;
+	if typeof(nd.hm) ~= "function" or typeof(getnamecallmethod) ~= "function" or typeof(checkcaller) ~= "function" then
+		return;
+	end;
+	local old;
+	local ok, hooked = pcall(function()
+		return nd.hm(game, "__namecall", function(self, ...)
+			if not nd.enabled then
+				return old(self, ...);
+			end;
+			local raw = getnamecallmethod();
+			local m = typeof(raw) == "string" and raw:lower() or "";
+			if not checkcaller() and typeof(self) == "Instance" and (m == "fireserver" or m == "invokeserver") then
+				local n = self.Name:lower();
+				if n:find("lookman", 1, true) or n:find("look_man", 1, true) or n:find("look man", 1, true) then
+					nd.forceLookDown();
+					return nil;
+				end;
+				if n == "a90" and m == "fireserver" then
+					return old(self, "didnt");
+				end;
+				if n == "screech" and m == "fireserver" then
+					return old(self, true);
+				end;
+				if n == "clutchheartbeat" and m == "fireserver" then
+					local a = { ... };
+					if a[2] == false then
+						return old(self, a[1], true);
+					end;
+				end;
+			end;
+			return old(self, ...);
+		end);
+	end);
+	if ok and typeof(hooked) == "function" then
+		old = hooked;
+		nd.badRemHook = true;
+		nd.badRemOld = old;
+	end;
+end;
+
+function nd.hookSpider()
+	if nd.spidHook then
+		return;
+	end;
+	local m = nd.getMods();
+	if not m then
+		nd.spiderUiMute();
+		return;
+	end;
+	local ms = m:FindFirstChild("SpiderJumpscare");
+	if not (ms and ms:IsA("ModuleScript")) then
+		nd.spiderUiMute();
+		return;
+	end;
+	local ok, fn = nd.safeRequire(ms);
+	if not ok or type(fn) ~= "function" then
+		nd.spiderUiMute();
+		return;
+	end;
+	if nd.hasHook then
+		local old;
+		local okHook, hooked = pcall(nd.hf, fn, function(...)
+			if not nd.enabled then
+				return old(...);
+			end;
+			nd.spiderUiMute();
+			return;
+		end);
+		if okHook and type(hooked) == "function" then
+			old = hooked;
+			nd.spidOld = old;
+			nd.spidHook = true;
+		end;
+	else
+		nd.spidHook = true;
+		nd.spiderUiMute();
+	end;
+end;
+
+function nd.hookA90()
+	if nd.a90Hook then
+		return;
+	end;
+	local m = nd.getMods();
+	if not m then
+		return;
+	end;
+	local ms = m:FindFirstChild("A90");
+	if not (ms and ms:IsA("ModuleScript")) then
+		return;
+	end;
+	local ok, fn = nd.safeRequire(ms);
+	if not ok or type(fn) ~= "function" then
+		nd.safeA90();
+		return;
+	end;
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local rem = remf and remf:FindFirstChild("A90");
+	nd.safeA90 = function(...)
+		if not nd.enabled then
+			return;
+		end;
+		local p = nd.lp();
+		local c = p and p.Character;
+		if c then
+			c:SetAttribute("Invincibility", true);
+		end;
+		nd.a90UiMute();
+		if rem then
+			pcall(function() rem:FireServer("didnt"); end);
+		end;
+	end;
+	if nd.hasHook then
+		local old;
+		local okHook, hooked = pcall(nd.hf, fn, function(...)
+			if not nd.enabled then
+				return old(...);
+			end;
+			return nd.safeA90(...);
+		end);
+		if okHook and type(hooked) == "function" then
+			old = hooked;
+			nd.a90Old = old;
+			nd.a90Hook = true;
+		end;
+	else
+		nd.a90Hook = true;
+		if rem then
+			nd.replaceConn("a90Attr", rem.OnClientEvent:Connect(function(...)
+				if nd.enabled then
+					nd.safeA90(...);
+				end;
+			end));
+		end;
+	end;
+end;
+
+function nd.watchClimb()
+end;
+
+function nd.hookLadder()
+end;
+
+function nd.hardCtx()
+	nd.patchCtx();
+end;
+
+function nd.hardChar()
+	nd.patchHum(nd.gch());
+end;
+
+function nd.extraLoop()
+	nd.disconnectConn(nd.extraConn);
+	nd.extraConn = nil;
+end;
+
+function nd.hardBypassLoop()
+	if nd.hardConn or not nd.rs then
+		return;
+	end;
+	local fast = 0;
+	local mid = 0;
+	local slow = 0;
+	nd.replaceConn("hardConn", nd.rs.Heartbeat:Connect(function(dt)
+		if not nd.enabled then
+			return;
+		end;
+		dt = tonumber(dt) or 0;
+		fast += dt;
+		mid += dt;
+		slow += dt;
+		if fast >= 0.25 then
+			fast = 0;
+			nd.hardChar();
+			nd.hardCtx();
+			nd.lookmanTick();
+		end;
+		if mid >= 5 then
+			mid = 0;
+			nd.muteFx();
+			nd.hideGuiHard();
+			nd.clearCameraFx();
+		end;
+		if slow >= 12 then
+			slow = 0;
+			nd.hardDangerSweep();
+		end;
+	end));
+end;
+
+function nd.hardBypasses()
+	nd.hardChar();
+	nd.hardCtx();
+	nd.muteFx();
+	nd.hideGuiHard();
+	nd.clearCameraFx();
+	nd.hardDangerSweep();
+	nd.hardBypassLoop();
+end;
+
+local oldCleanupRuntime = nd.cleanupRuntime;
+function nd.cleanupRuntime()
+	nd.enabled = false;
+	nd.loaded = false;
+	nd.disconnectConn(nd.almaWatch);
+	nd.almaWatch = nil;
+	nd.disconnectConn(nd.almaClientWatch);
+	nd.almaClientWatch = nil;
+	if nd._env and nd.originalFpp and nd._env.fireproximityprompt == nd.customFpp then
+		nd._env.fireproximityprompt = nd.originalFpp;
+	end;
+	if type(oldCleanupRuntime) == "function" then
+		oldCleanupRuntime();
+	end;
+end;
+nd.cleanup = nd.cleanupRuntime;
+
+function nd.isAlmaModel(obj)
+	if not (obj and obj:IsA("Model")) then
+		return false;
+	end;
+	local n = tostring(obj.Name or ""):lower();
+	if n == "alma" or n == "_despawningalma" then
+		return true;
+	end;
+	if obj:GetAttribute("AlmaCutsceneModel") == true then
+		return true;
+	end;
+	local root = obj:FindFirstChild("Root");
+	local body = obj:FindFirstChild("Body");
+	local seed = obj:FindFirstChild("Seed");
+	local change = obj:FindFirstChild("AlmaChangeState");
+	local sync = obj:FindFirstChild("AlmaUpdateSyncronize");
+	return root ~= nil and body ~= nil and seed ~= nil and (change ~= nil or sync ~= nil);
+end;
+
+function nd.silenceAlmaSound(s)
+	if not (s and s:IsA("Sound")) then
+		return;
+	end;
+	nd.trySet(s, "Volume", 0);
+	nd.trySet(s, "Playing", false);
+	pcall(function()
+		s:Stop();
+	end);
+end;
+
+function nd.killAlmaAudio()
+	local misc = workspace:FindFirstChild("Misc");
+	local container = misc and misc:FindFirstChild("AlmaAudioContainer");
+	if container then
+		for _, d in container:GetDescendants() do
+			if d:IsA("Sound") then
+				nd.silenceAlmaSound(d);
+			end;
+		end;
+		pcall(function()
+			container:Destroy();
+		end);
+	end;
+	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
+	local cr = fr and fr:FindFirstChild("ClientRemote");
+	local alma = cr and cr:FindFirstChild("AlmaClient");
+	if alma then
+		for _, d in alma:GetDescendants() do
+			if d:IsA("Sound") then
+				nd.silenceAlmaSound(d);
+			end;
+		end;
+	end;
+end;
+
+function nd.killAlmaModel(model)
+	if not nd.isAlmaModel(model) then
+		return false;
+	end;
+	for _, d in model:GetDescendants() do
+		if d:IsA("Sound") then
+			nd.silenceAlmaSound(d);
+		elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+			nd.trySet(d, "Enabled", false);
+		end;
+	end;
+	pcall(function()
+		model:Destroy();
+	end);
+	nd.killAlmaAudio();
+	return true;
+end;
+
+function nd.handleAlmaDescendant(d)
+	if not nd.enabled or not d then
+		return;
+	end;
+	if d.Name == "AlmaAudioContainer" then
+		task.defer(nd.killAlmaAudio);
+		return;
+	end;
+	if d:IsA("Sound") then
+		local n = tostring(d.Name or ""):lower();
+		local parent = d.Parent;
+		if n:find("alma", 1, true) or (parent and parent.Name == "AlmaAudioContainer") then
+			nd.silenceAlmaSound(d);
+		end;
+	end;
+	local model;
+	if d:IsA("Model") then
+		model = d;
+	else
+		model = d:FindFirstAncestorWhichIsA("Model");
+	end;
+	if model and nd.isAlmaModel(model) then
+		task.defer(nd.killAlmaModel, model);
+	end;
+end;
+
+function nd.hookAlma()
+	if nd.almaHook then
+		return true;
+	end;
+	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
+	local cr = fr and fr:FindFirstChild("ClientRemote");
+	local ms = cr and cr:FindFirstChild("AlmaClient");
+	if not (ms and ms:IsA("ModuleScript")) then
+		return false;
+	end;
+	local ok, fn = nd.safeRequire(ms);
+	if not ok or type(fn) ~= "function" then
+		return false;
+	end;
+	if nd.hasHook then
+		local old;
+		local okHook, hooked = pcall(nd.hf, fn, function(...)
+			if nd.enabled then
+				local a = { ... };
+				local model = a[2];
+				if typeof(model) == "Instance" and model:IsA("Model") then
+					task.defer(nd.killAlmaModel, model);
+				end;
+				task.defer(nd.killAlmaAudio);
+				return;
+			end;
+			return old(...);
+		end);
+		if okHook and type(hooked) == "function" then
+			old = hooked;
+			nd.almaOld = old;
+			nd.almaHook = true;
+			return true;
+		end;
+	end;
+	return false;
+end;
+
+function nd.startAlmaBypass()
+	nd.killAlmaAudio();
+	nd.hookAlma();
+	nd.disconnectConn(nd.almaWatch);
+	nd.almaWatch = nil;
+	nd.replaceConn("almaWatch", workspace.DescendantAdded:Connect(function(d)
+		if nd.enabled then
+			task.defer(nd.handleAlmaDescendant, d);
+		end;
+	end));
+	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
+	local cr = fr and fr:FindFirstChild("ClientRemote");
+	nd.disconnectConn(nd.almaClientWatch);
+	nd.almaClientWatch = nil;
+	if cr then
+		nd.replaceConn("almaClientWatch", cr.ChildAdded:Connect(function(ch)
+			if nd.enabled and ch.Name == "AlmaClient" then
+				nd.almaHook = false;
+				task.defer(nd.hookAlma);
+				task.defer(nd.killAlmaAudio);
+			end;
+		end));
+	end;
+	nd.scanTree(workspace, nd.handleAlmaDescendant, nil, 120);
+end;
+
 function nd.plugRun(ctx)
 	if type(ctx) == "table" then
 		nd.cmdCtx = ctx;
 	end;
-	for _, t in nd.promptTargets do
-		nd.ensurePrompt(t, false);
+	nd.enabled = true;
+	nd.loaded = true;
+	if nd._env and nd.customFpp then
+		nd._env.fireproximityprompt = nd.customFpp;
 	end;
-	for _, t in nd.promptFindTargets do
-		nd.ensurePrompt(t, true);
-	end;
-	for _, term in nd.espExactTargets do
-		nd.ensureEsp("exact", term);
-	end;
-	for _, args in nd.otherCmds do
-		nd.safeCmdRun(args);
+	if not nd.jobsConfigured then
+		for _, t in nd.promptTargets do
+			nd.ensurePrompt(t, false);
+		end;
+		for _, t in nd.promptFindTargets do
+			nd.ensurePrompt(t, true);
+		end;
+		for _, term in nd.espExactTargets do
+			nd.ensureEsp("exact", term);
+		end;
+		for _, args in nd.otherCmds do
+			nd.safeCmdRun(args);
+		end;
+		nd.jobsConfigured = true;
 	end;
 	nd.killJam();
-	nd.fixScreech();
 	nd.startDoors();
 	nd.setModsHooks();
+	nd.startAlmaBypass();
 	nd.bindChar();
-	nd.attrLoop();
 	nd.crouchLoop();
 	nd.a90UiMute();
-	nd.hookLadder();
 	nd.promptExtreme();
 	nd.hookBadRemotes();
 	nd.wireMinis();
-	nd.hookMoreMods();
-	nd.extraLoop();
 	nd.hardBypasses();
-	nd.delDanger();
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local a90Rem = remf and remf:FindFirstChild("A90");
 	if a90Rem and (not nd.a90Hook) and (not nd.a90Attr) then
 		nd.replaceConn("a90Attr", a90Rem.OnClientEvent:Connect(function(...)
-			local p = nd.lp();
-			local c = p and p.Character;
-			if c then
-				c:SetAttribute("Invincibility", true);
+			if nd.enabled then
+				nd.safeA90(...);
 			end;
-			nd.a90UiMute();
 		end));
 	end;
 end;
