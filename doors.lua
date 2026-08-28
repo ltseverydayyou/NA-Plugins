@@ -290,6 +290,7 @@ nd.promptTargets = {
 	"starbottle",
 	"livehintbook",
 	"libraryhintpaper",
+	"pizza",
 };
 nd.promptFindTargets = {
 	"stardust",
@@ -304,7 +305,6 @@ nd.espExactTargets = {
 	"a120",
 	"backdoorrush",
 	"livehintbook",
-	"libraryhintpaper",
 };
 nd.otherCmds = {
 	{
@@ -2438,35 +2438,6 @@ nd.jobsConfigured = nd.jobsConfigured == true;
 if nd._env and nd.originalFpp and nd._env.fireproximityprompt == nd.customFpp then
 	nd._env.fireproximityprompt = nd.originalFpp;
 end;
-nd.promptTargets = {
-	"goldpile",
-	"lock",
-	"toolbox",
-	"lever",
-	"bandage",
-	"metal",
-	"knobs",
-	"knob",
-	"livebreakerpolepickup",
-	"drawerdoors",
-	"hole",
-	"rolltopcontainer",
-	"lockpick",
-	"chestbox",
-	"crucifix",
-	"skeletonkey",
-	"plant",
-	"shears",
-	"cellar",
-	"cuttablevines",
-	"skulllock",
-	"wheel",
-	"starvial",
-	"starbottle",
-	"livehintbook",
-	"libraryhintpaper",
-	"pizza",
-};
 nd.otherCmds = {
 	{ "autodelfind", "giggle" },
 	{ "autodel", "egg" },
