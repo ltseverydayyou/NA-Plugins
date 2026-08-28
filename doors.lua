@@ -899,11 +899,18 @@ function nd.setModsHooks()
 	end;
 	nd.disconnectConn(nd.pgConn); nd.pgConn = nil;
 	if nd.getMods() then
+		task.defer(nd.fixScreech);
 		task.defer(nd.hookSpider); task.defer(nd.hookA90); task.defer(nd.hookCam);
 	end;
 	nd.replaceConn("modsConn", g.DescendantAdded:Connect(function(inst)
 		if nd.isMainMods(inst) then
+			task.defer(nd.fixScreech);
 			task.defer(nd.hookSpider); task.defer(nd.hookA90); task.defer(nd.hookCam);
+		elseif inst.Name == "Screech" then
+			local mods = nd.getMods();
+			if mods and inst.Parent == mods then
+				task.defer(nd.fixScreech);
+			end;
 		end;
 	end));
 end;
@@ -2610,6 +2617,14 @@ function nd.killJam()
 end;
 
 function nd.fixScreech()
+	local m = nd.getMods();
+	if not m then
+		return;
+	end;
+	local sc = m:FindFirstChild("Screech") or m:FindFirstChild("Screech_Noob");
+	if sc and sc.Name ~= "Screech_Noob" then
+		sc.Name = "Screech_Noob";
+	end;
 end;
 
 function nd.startDoors()
@@ -3039,10 +3054,53 @@ function nd.hookA90()
 	end;
 end;
 
-function nd.watchClimb()
+function nd.watchClimb(c)
+	if not c then
+		return;
+	end;
+	nd.addCharConn((c:GetAttributeChangedSignal("Climbing")):Connect(function()
+		if not nd.enabled then
+			return;
+		end;
+		if c:GetAttribute("Climbing") == true then
+			task.defer(nd.drop);
+		end;
+	end));
+	if c:GetAttribute("Climbing") == true then
+		task.defer(nd.drop);
+	end;
 end;
 
 function nd.hookLadder()
+	if nd.ladHook then
+		return true;
+	end;
+	if typeof(nd.hm) ~= "function" or typeof(getnamecallmethod) ~= "function" or typeof(checkcaller) ~= "function" then
+		return false;
+	end;
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local rem = remf and remf:FindFirstChild("ClimbLadder");
+	if not rem then
+		return false;
+	end;
+	local old;
+	local ok, hooked = pcall(function()
+		return nd.hm(game, "__namecall", function(self, ...)
+			local raw = getnamecallmethod and getnamecallmethod() or nil;
+			local method = typeof(raw) == "string" and raw:lower() or "";
+			if nd.enabled and not checkcaller() and self == rem and method == "fireserver" then
+				nd.drop();
+			end;
+			return old(self, ...);
+		end);
+	end);
+	if not ok or typeof(hooked) ~= "function" then
+		return false;
+	end;
+	old = hooked;
+	nd.ladMm = old;
+	nd.ladHook = true;
+	return true;
 end;
 
 function nd.hardCtx()
@@ -3308,9 +3366,11 @@ function nd.plugRun(ctx)
 	end;
 	nd.killJam();
 	nd.startDoors();
+	nd.fixScreech();
 	nd.setModsHooks();
 	nd.startAlmaBypass();
 	nd.bindChar();
+	nd.hookLadder();
 	nd.crouchLoop();
 	nd.a90UiMute();
 	nd.promptExtreme();
