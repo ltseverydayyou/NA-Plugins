@@ -183,7 +183,7 @@ function nd.cleanupRuntime()
 		pcall(nd.restoreConns);
 	end;
 	for _, key in {
-		"roomConn", "attrConn", "crouchConn", "charConn", "pgConn", "modsConn", "screechFlagConn", "a90Attr",
+		"roomConn", "attrConn", "crouchConn", "charConn", "pgConn", "modsConn", "screechFlagConn", "screechBypassConn", "a90Attr",
 		"promptConn", "pgPromptConn", "hbConn", "miniConn", "remWatch", "extraConn", "hardConn",
 		"remoteWatch2", "frWatch2", "gcScanConn", "hconn", "dangerRoomsWatch", "dangerEntWatch",
 		"dangerCamWatch", "uiHardWatch", "cameraFxWatch", "soundFxWatch", "lightingFxWatch", "muteFxUiWatch",
@@ -223,6 +223,7 @@ function nd.cleanupRuntime()
 	local screechOriginal = nd.screechOriginal;
 	nd.screechFlag = nil;
 	nd.screechOriginal = nil;
+	nd.screechHook = false;
 	if screechFlag and screechFlag.Parent and screechFlag:IsA("BoolValue") and type(screechOriginal) == "boolean" then
 		pcall(function()
 			screechFlag.Value = screechOriginal;
@@ -2191,39 +2192,28 @@ function nd.hookScreech()
 	if nd.screechHook then
 		return;
 	end;
-	local m = nd.getMods();
-	if not m then
-		return;
-	end;
-	local ms = m:FindFirstChild("Screech") or m:FindFirstChild("Screech_Noob");
-	if not (ms and ms:IsA("ModuleScript")) then
-		return;
-	end;
-	local ok, fn = nd.safeRequire(ms);
-	if not ok or type(fn) ~= "function" then
-		return;
-	end;
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local rem = remf and remf:FindFirstChild("Screech");
-	if nd.hasHook then
-		local old;
-		local okHook, hooked = pcall(nd.hf, fn, function(...)
-			if not nd.enabled then
-				return old(...);
+	if not (rem and rem:IsA("RemoteEvent")) then
+		return;
+	end;
+	if typeof(getconnections) == "function" then
+		local ok, list = pcall(getconnections, rem.OnClientEvent);
+		if ok and type(list) == "table" then
+			for _, conn in list do
+				nd.disableConnObj(conn);
 			end;
-			if rem then
-				pcall(function()
-					rem:FireServer(true);
-				end);
-			end;
-			return nil;
-		end);
-		if okHook and type(hooked) == "function" then
-			old = hooked;
-			nd.screechOld = old;
-			nd.screechHook = true;
 		end;
 	end;
+	nd.replaceConn("screechBypassConn", rem.OnClientEvent:Connect(function(...)
+		if not nd.enabled then
+			return;
+		end;
+		pcall(function()
+			rem:FireServer(true);
+		end);
+	end));
+	nd.screechHook = true;
 end;
 
 function nd.hookA90()
