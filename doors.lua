@@ -340,6 +340,7 @@ nd.espExactTargets = {
 	"a120",
 	"backdoorrush",
 	"livehintbook",
+	"bashmoving",
 };
 function nd.safeCmdRun(args)
 	local ctx = nd.cmdCtx;
@@ -1744,6 +1745,7 @@ end;
 nd.otherCmds = {
 	{ "autodelfind", "giggle" },
 	{ "autodel", "egg" },
+	{ "autodel", "drones" },
 	{ "autodelfind", "surge" },
 	{ "autodel", "sideroomdupe" },
 	{ "autodel", "sideroomspace" },
