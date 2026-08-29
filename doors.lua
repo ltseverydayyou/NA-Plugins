@@ -2670,6 +2670,14 @@ end;
 function nd.speedClearKeys()
 	for k in pairs(nd.speedKeys) do nd.speedKeys[k] = nil; end;
 end;
+function nd.setSpeedExternalOverride(state)
+	local p = nd.lp();
+	if p then
+		pcall(function()
+			p:SetAttribute("NAExternalSpeedOverride", state == true and true or nil);
+		end);
+	end;
+end;
 function nd.speedGetControls()
 	if type(nd.speedControls) == "table" then return nd.speedControls; end;
 	local p = nd.lp();
@@ -2700,6 +2708,7 @@ function nd.stopSpeedAssist(restore)
 	nd.speedAssistActive = false;
 	nd.speedMoveAccum = 0;
 	nd.speedClearKeys();
+	nd.setSpeedExternalOverride(false);
 	if nd.cas then
 		pcall(nd.cas.UnbindAction, nd.cas, nd.speedActionName);
 	end;
@@ -2790,6 +2799,7 @@ function nd.startSpeedAssist(target)
 	nd.speedTarget = target;
 	nd.speedAssistActive = true;
 	nd.speedMoveAccum = 0;
+	nd.setSpeedExternalOverride(true);
 	if hum then pcall(function() hum.WalkSpeed = 16; end); end;
 	nd.speedControls = nd.speedGetControls();
 	if not nd.speedControls and nd.cas then
@@ -2832,12 +2842,6 @@ function nd.startSpeedAssist(target)
 			local stepDt = math.min(nd.speedMoveAccum, 0.1);
 			nd.speedMoveAccum = 0;
 			local distance = (tonumber(nd.speedTarget) or 20) * stepDt * strength;
-			nd.speedRayParams = nd.speedRayParams or RaycastParams.new();
-			nd.speedRayParams.FilterType = Enum.RaycastFilterType.Exclude;
-			nd.speedRayParams.FilterDescendantsInstances = { char };
-			nd.speedRayParams.IgnoreWater = true;
-			local hit = workspace:Raycast(root.Position, dir * (distance + 1.25), nd.speedRayParams);
-			if hit then distance = math.min(distance, math.max(0, hit.Distance - 1.25)); end;
 			if distance > 0.01 then
 				root.CFrame = root.CFrame + dir * distance;
 			end;
