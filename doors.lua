@@ -183,7 +183,7 @@ function nd.cleanupRuntime()
 		pcall(nd.restoreConns);
 	end;
 	for _, key in {
-		"roomConn", "attrConn", "crouchConn", "charConn", "pgConn", "modsConn", "a90Attr",
+		"roomConn", "attrConn", "crouchConn", "charConn", "pgConn", "modsConn", "screechFlagConn", "a90Attr",
 		"promptConn", "pgPromptConn", "hbConn", "miniConn", "remWatch", "extraConn", "hardConn",
 		"remoteWatch2", "frWatch2", "gcScanConn", "hconn", "dangerRoomsWatch", "dangerEntWatch",
 		"dangerCamWatch", "uiHardWatch", "cameraFxWatch", "soundFxWatch", "lightingFxWatch", "muteFxUiWatch",
@@ -218,6 +218,15 @@ function nd.cleanupRuntime()
 	for _, key in dynamic do
 		nd.disconnectConn(nd[key]);
 		nd[key] = nil;
+	end;
+	local screechFlag = nd.screechFlag;
+	local screechOriginal = nd.screechOriginal;
+	nd.screechFlag = nil;
+	nd.screechOriginal = nil;
+	if screechFlag and screechFlag.Parent and screechFlag:IsA("BoolValue") and type(screechOriginal) == "boolean" then
+		pcall(function()
+			screechFlag.Value = screechOriginal;
+		end);
 	end;
 	if nd._env and nd.originalFpp and nd._env.fireproximityprompt == nd.customFpp then
 		nd._env.fireproximityprompt = nd.originalFpp;
@@ -1888,14 +1897,43 @@ function nd.killJam()
 end;
 
 function nd.fixScreech()
+	local rs = nd.rsrv or __lt.cs("ReplicatedStorage", __lt.cr);
+	local gd = rs and rs:FindFirstChild("GameData");
+	local flag = gd and gd:FindFirstChild("EntityDisableScreech");
+	if flag and flag:IsA("BoolValue") then
+		if nd.screechFlag ~= flag then
+			nd.disconnectConn(nd.screechFlagConn);
+			nd.screechFlagConn = nil;
+			nd.screechFlag = flag;
+			nd.screechOriginal = flag.Value;
+			nd.replaceConn("screechFlagConn", flag:GetPropertyChangedSignal("Value"):Connect(function()
+				if nd.enabled and flag.Parent and flag.Value ~= true then
+					task.defer(function()
+						if nd.enabled and flag.Parent and flag.Value ~= true then
+							pcall(function()
+								flag.Value = true;
+							end);
+						end;
+					end);
+				end;
+			end));
+		end;
+		if flag.Value ~= true then
+			pcall(function()
+				flag.Value = true;
+			end);
+		end;
+		return true;
+	end;
 	local m = nd.getMods();
 	if not m then
-		return;
+		return false;
 	end;
 	local sc = m:FindFirstChild("Screech") or m:FindFirstChild("Screech_Noob");
 	if sc and sc.Name ~= "Screech_Noob" then
 		sc.Name = "Screech_Noob";
 	end;
+	return sc ~= nil;
 end;
 
 function nd.attrLoop()
