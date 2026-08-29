@@ -2103,9 +2103,13 @@ function nd.hookBadRemotes()
 	if typeof(nd.hm) ~= "function" or typeof(getnamecallmethod) ~= "function" or typeof(checkcaller) ~= "function" then
 		return;
 	end;
+	local hookTarget = nd.rsrv or __lt.cs("ReplicatedStorage", __lt.cr);
+	if typeof(hookTarget) ~= "Instance" then
+		return;
+	end;
 	local old;
 	local ok, hooked = pcall(function()
-		return nd.hm(game, "__namecall", function(self, ...)
+		return nd.hm(hookTarget, "__namecall", function(self, ...)
 			if not nd.enabled then
 				return old(self, ...);
 			end;
