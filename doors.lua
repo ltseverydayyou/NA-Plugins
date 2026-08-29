@@ -2660,6 +2660,7 @@ function nd.restoreDoorTransparency()
 end;
 
 nd.speedActionName = "NADoorsSpeedMove";
+nd.speedSuppressName = "NADoorsSpeedSuppress";
 nd.speedKeys = nd.speedKeys or {};
 nd.speedMoveAccum = 0;
 function nd.speedHumanoid()
@@ -2669,6 +2670,32 @@ end;
 function nd.speedClearKeys()
 	for k in pairs(nd.speedKeys) do nd.speedKeys[k] = nil; end;
 end;
+function nd.speedGetControls()
+	if type(nd.speedControls) == "table" then return nd.speedControls; end;
+	local p = nd.lp();
+	local ps = p and p:FindFirstChild("PlayerScripts");
+	local pm = ps and ps:FindFirstChild("PlayerModule");
+	if not (pm and pm:IsA("ModuleScript")) then return nil; end;
+	local getIdentity = getthreadidentity or getidentity or get_thread_identity;
+	local setIdentity = setthreadidentity or setidentity or set_thread_identity;
+	local oldIdentity;
+	local changedIdentity = false;
+	if typeof(getIdentity) == "function" and typeof(setIdentity) == "function" then
+		local okId, id = pcall(getIdentity);
+		if okId then oldIdentity = id; end;
+		changedIdentity = pcall(setIdentity, 2);
+	end;
+	local ok, module = pcall(require, pm);
+	if changedIdentity and oldIdentity ~= nil then pcall(setIdentity, oldIdentity); end;
+	if ok and type(module) == "table" and type(module.GetControls) == "function" then
+		local okControls, controls = pcall(module.GetControls, module);
+		if okControls and type(controls) == "table" then
+			nd.speedControls = controls;
+			return controls;
+		end;
+	end;
+	return nil;
+end;
 function nd.stopSpeedAssist(restore)
 	nd.speedAssistActive = false;
 	nd.speedMoveAccum = 0;
@@ -2676,6 +2703,7 @@ function nd.stopSpeedAssist(restore)
 	if nd.cas then
 		pcall(nd.cas.UnbindAction, nd.cas, nd.speedActionName);
 	end;
+	if nd.rs then pcall(nd.rs.UnbindFromRenderStep, nd.rs, nd.speedSuppressName); end;
 	nd.disconnectConn(nd.speedMoveConn); nd.speedMoveConn = nil;
 	nd.disconnectConn(nd.speedCharConn); nd.speedCharConn = nil;
 	if restore then
@@ -2712,7 +2740,7 @@ function nd.speedInputHandler(_, state, input)
 	end;
 	return Enum.ContextActionResult.Sink;
 end;
-function nd.speedDirection()
+function nd.speedFallbackDirection()
 	local forward = (nd.speedKeys.W and 1 or 0) - (nd.speedKeys.S and 1 or 0);
 	local side = (nd.speedKeys.D and 1 or 0) - (nd.speedKeys.A and 1 or 0);
 	if forward == 0 and side == 0 then return nil; end;
@@ -2723,6 +2751,20 @@ function nd.speedDirection()
 	if look.Magnitude < 0.001 or right.Magnitude < 0.001 then return nil; end;
 	local move = look.Unit * forward + right.Unit * side;
 	return move.Magnitude > 0.001 and move.Unit or nil;
+end;
+function nd.speedDirection()
+	local controls = nd.speedControls;
+	if type(controls) == "table" then
+		local move = controls.inputMoveVector;
+		if typeof(move) == "Vector3" then
+			move = Vector3.new(move.X, 0, move.Z);
+			if move.Magnitude > 0.001 then
+				return move.Magnitude > 1 and move.Unit or move;
+			end;
+			return nil;
+		end;
+	end;
+	return nd.speedFallbackDirection();
 end;
 function nd.speedCanMove(char, root)
 	if not char or not root or root.Anchored then return false; end;
@@ -2749,7 +2791,8 @@ function nd.startSpeedAssist(target)
 	nd.speedAssistActive = true;
 	nd.speedMoveAccum = 0;
 	if hum then pcall(function() hum.WalkSpeed = 16; end); end;
-	if nd.cas then
+	nd.speedControls = nd.speedGetControls();
+	if not nd.speedControls and nd.cas then
 		pcall(nd.cas.BindActionAtPriority, nd.cas, nd.speedActionName, nd.speedInputHandler, false, Enum.ContextActionPriority.High.Value + 100,
 			Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
 			Enum.KeyCode.Up, Enum.KeyCode.Left, Enum.KeyCode.Down, Enum.KeyCode.Right);
@@ -2761,11 +2804,16 @@ function nd.startSpeedAssist(target)
 		end));
 	end;
 	if nd.rs then
+		pcall(nd.rs.UnbindFromRenderStep, nd.rs, nd.speedSuppressName);
+		pcall(nd.rs.BindToRenderStep, nd.rs, nd.speedSuppressName, Enum.RenderPriority.Input.Value + 1, function()
+			if not nd.speedAssistActive then return; end;
+			local hum2 = nd.speedHumanoid();
+			if hum2 then pcall(hum2.Move, hum2, Vector3.zero, false); end;
+		end);
 		nd.replaceConn("speedMoveConn", nd.rs.Heartbeat:Connect(function(dt)
 			if not nd.speedAssistActive then return; end;
 			local hum2, char = nd.speedHumanoid();
 			local root = char and (char.PrimaryPart or char:FindFirstChild("HumanoidRootPart"));
-			if hum2 then pcall(hum2.Move, hum2, Vector3.zero, false); end;
 			if root then
 				local vel = root.AssemblyLinearVelocity;
 				root.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0);
@@ -2775,13 +2823,15 @@ function nd.startSpeedAssist(target)
 				if ok and box then nd.speedClearKeys(); return; end;
 			end;
 			if not nd.speedCanMove(char, root) then return; end;
-			local dir = nd.speedDirection();
-			if not dir then return; end;
+			local move = nd.speedDirection();
+			if not move then return; end;
+			local strength = math.min(move.Magnitude, 1);
+			local dir = move.Unit;
 			nd.speedMoveAccum += math.min(tonumber(dt) or 0, 0.05);
 			if nd.speedMoveAccum < 0.05 then return; end;
 			local stepDt = math.min(nd.speedMoveAccum, 0.1);
 			nd.speedMoveAccum = 0;
-			local distance = (tonumber(nd.speedTarget) or 20) * stepDt;
+			local distance = (tonumber(nd.speedTarget) or 20) * stepDt * strength;
 			nd.speedRayParams = nd.speedRayParams or RaycastParams.new();
 			nd.speedRayParams.FilterType = Enum.RaycastFilterType.Exclude;
 			nd.speedRayParams.FilterDescendantsInstances = { char };
