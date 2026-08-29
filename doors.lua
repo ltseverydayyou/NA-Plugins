@@ -685,7 +685,7 @@ function nd.setModsHooks()
 				if ch:IsA("PlayerGui") then
 					nd.replaceConn("modsConn", ch.DescendantAdded:Connect(function(inst)
 						if nd.isMainMods(inst) then
-							task.defer(nd.hookSpider); task.defer(nd.hookA90); task.defer(nd.hookCam);
+							task.defer(nd.hookSpider); task.defer(nd.hookScreech); task.defer(nd.hookA90); task.defer(nd.hookCam);
 						end;
 					end));
 					nd.disconnectConn(nd.pgConn); nd.pgConn = nil;
@@ -697,16 +697,17 @@ function nd.setModsHooks()
 	nd.disconnectConn(nd.pgConn); nd.pgConn = nil;
 	if nd.getMods() then
 		task.defer(nd.fixScreech);
-		task.defer(nd.hookSpider); task.defer(nd.hookA90); task.defer(nd.hookCam);
+		task.defer(nd.hookSpider); task.defer(nd.hookScreech); task.defer(nd.hookA90); task.defer(nd.hookCam);
 	end;
 	nd.replaceConn("modsConn", g.DescendantAdded:Connect(function(inst)
 		if nd.isMainMods(inst) then
 			task.defer(nd.fixScreech);
-			task.defer(nd.hookSpider); task.defer(nd.hookA90); task.defer(nd.hookCam);
+			task.defer(nd.hookSpider); task.defer(nd.hookScreech); task.defer(nd.hookA90); task.defer(nd.hookCam);
 		elseif inst.Name == "Screech" then
 			local mods = nd.getMods();
 			if mods and inst.Parent == mods then
 				task.defer(nd.fixScreech);
+				task.defer(nd.hookScreech);
 			end;
 		end;
 	end));
@@ -2183,6 +2184,45 @@ function nd.hookSpider()
 	else
 		nd.spidHook = true;
 		nd.spiderUiMute();
+	end;
+end;
+
+function nd.hookScreech()
+	if nd.screechHook then
+		return;
+	end;
+	local m = nd.getMods();
+	if not m then
+		return;
+	end;
+	local ms = m:FindFirstChild("Screech") or m:FindFirstChild("Screech_Noob");
+	if not (ms and ms:IsA("ModuleScript")) then
+		return;
+	end;
+	local ok, fn = nd.safeRequire(ms);
+	if not ok or type(fn) ~= "function" then
+		return;
+	end;
+	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+	local rem = remf and remf:FindFirstChild("Screech");
+	if nd.hasHook then
+		local old;
+		local okHook, hooked = pcall(nd.hf, fn, function(...)
+			if not nd.enabled then
+				return old(...);
+			end;
+			if rem then
+				pcall(function()
+					rem:FireServer(true);
+				end);
+			end;
+			return nil;
+		end);
+		if okHook and type(hooked) == "function" then
+			old = hooked;
+			nd.screechOld = old;
+			nd.screechHook = true;
+		end;
 	end;
 end;
 
