@@ -173,6 +173,11 @@ function nd.cleanupRuntime()
 	nd.enabled = false;
 	nd.loaded = false;
 	nd.scanGeneration = (nd.scanGeneration or 0) + 1;
+	nd.dangerCatchupGeneration = (nd.dangerCatchupGeneration or 0) + 1;
+	nd.soundFxCatchupGeneration = (nd.soundFxCatchupGeneration or 0) + 1;
+	nd.fxCatchupGeneration = (nd.fxCatchupGeneration or 0) + 1;
+	nd.almaSetupGeneration = (nd.almaSetupGeneration or 0) + 1;
+	nd.cameraFxCatchupGeneration = (nd.cameraFxCatchupGeneration or 0) + 1;
 	nd.clearCharConns();
 	if type(nd.restoreConns) == "function" then
 		pcall(nd.restoreConns);
@@ -184,7 +189,7 @@ function nd.cleanupRuntime()
 		"dangerCamWatch", "uiHardWatch", "cameraFxWatch", "soundFxWatch", "lightingFxWatch", "muteFxUiWatch",
 		"almaWatch", "almaClientWatch", "almaMiscWatch", "almaEntitiesWatch", "almaRoomsWatch",
 		"doorLatestConn", "doorRoomsConn", "doorRoomDescConn", "doorWorkspaceConn",
-		"dangerWorkspaceWatch", "dangerCameraPropWatch", "dangerLatestConn",
+		"dangerWorkspaceWatch", "dangerCameraPropWatch", "dangerLatestConn", "dangerActiveConn",
 	} do
 		nd.disconnectConn(nd[key]);
 		nd[key] = nil;
@@ -193,6 +198,12 @@ function nd.cleanupRuntime()
 		for room, conn in pairs(nd.dangerRoomConns) do
 			nd.disconnectConn(conn);
 			nd.dangerRoomConns[room] = nil;
+		end;
+	end;
+	if nd.dangerFamilyConns then
+		for root, conn in pairs(nd.dangerFamilyConns) do
+			nd.disconnectConn(conn);
+			nd.dangerFamilyConns[root] = nil;
 		end;
 	end;
 	local dynamic = {};
@@ -221,6 +232,9 @@ function nd.cleanupRuntime()
 	nd.dangerRoomConns = setmetatable({}, { __mode = "k" });
 	nd.dangerRoomSeen = setmetatable({}, { __mode = "k" });
 	nd.dangerFamilySeen = setmetatable({}, { __mode = "k" });
+	nd.dangerFamilyConns = setmetatable({}, { __mode = "k" });
+	nd.dangerActiveRoom = nil;
+	nd.dangerActiveConn = nil;
 	nd.uiHardRoot = nil;
 	nd.cameraFxRoot = nil;
 	nd.soundFxRoot = nil;
@@ -597,7 +611,7 @@ function nd.a90UiMute()
 	if not u then
 		return;
 	end;
-	local j = u:FindFirstChild("Jumpscare", true);
+	local j = u:FindFirstChild("Jumpscare");
 	if not j then
 		return;
 	end;
@@ -612,7 +626,7 @@ function nd.spiderUiMute()
 	if not u then
 		return;
 	end;
-	local j = u:FindFirstChild("Jumpscare", true);
+	local j = u:FindFirstChild("Jumpscare");
 	if not j then
 		return;
 	end;
@@ -1569,8 +1583,16 @@ function nd.hideGuiHard()
 	local u = nd.ui(); if not u then return; end;
 	if nd.uiHardRoot ~= u or not (nd.uiHardWatch and nd.uiHardWatch.Connected) then
 		nd.disconnectConn(nd.uiHardWatch); nd.uiHardRoot = u;
-		nd.queryEach(u, "#Jumpscare, #Dread, #EyelidsVignette, #LiveAchievement, #LiveProgress, #LiveCandy", nd.hideGuiOne);
-		nd.replaceConn("uiHardWatch", u.DescendantAdded:Connect(function(d) task.defer(nd.hideGuiOne, d); end));
+		nd.hideGuiOne(u:FindFirstChild("Jumpscare"));
+		local mf = u:FindFirstChild("MainFrame");
+		if mf then
+			for _, name in { "EyelidsVignette", "LiveAchievement", "LiveProgress", "LiveCandy" } do
+				nd.hideGuiOne(mf:FindFirstChild(name));
+			end;
+		end;
+		nd.replaceConn("uiHardWatch", u.DescendantAdded:Connect(function(d)
+			nd.hideGuiOne(d);
+		end));
 	end;
 end;
 function nd.hideGuiOne(d)
@@ -1578,6 +1600,15 @@ function nd.hideGuiOne(d)
 		return;
 	end;
 	local n = tostring(d.Name or ""):lower();
+	if n == "jam" or n == "jamming" then
+		if d:IsA("Sound") then
+			nd.trySet(d, "Volume", 0);
+			pcall(function() d:Stop(); end);
+		elseif d:IsA("GuiObject") then
+			nd.trySet(d, "Visible", false);
+		end;
+		return;
+	end;
 	if not (n:find("jumpscare", 1, true)
 		or n:find("dread", 1, true)
 		or n:find("vignette", 1, true)
@@ -1600,11 +1631,21 @@ function nd.hideGuiOne(d)
 end;
 
 function nd.clearSoundFxOne(d)
-	if not (d and (d:IsA("Sound") or d:IsA("SoundEffect"))) then return; end;
-	nd.silenceSound(d);
+	if not d then return; end;
+	local cls = tostring(d.ClassName or "");
+	if cls == "Sound" then
+		nd.silenceSound(d);
+		return;
+	end;
+	if cls:sub(-11) ~= "SoundEffect" then
+		return;
+	end;
 	local n = tostring(d.Name or ""):lower();
-	if n:find("sanity") or n:find("equalizer") or n:find("jamming") then
-		nd.trySet(d, "Enabled", false); nd.trySet(d, "HighGain", 0); nd.trySet(d, "MidGain", 0); nd.trySet(d, "LowGain", 0);
+	if n:find("sanity", 1, true) or n:find("equalizer", 1, true) or n:find("jamming", 1, true) then
+		nd.trySet(d, "Enabled", false);
+		if cls == "EqualizerSoundEffect" then
+			nd.trySet(d, "HighGain", 0); nd.trySet(d, "MidGain", 0); nd.trySet(d, "LowGain", 0);
+		end;
 	end;
 end;
 function nd.clearLightingOne(d)
@@ -1617,24 +1658,79 @@ function nd.clearLightingOne(d)
 end;
 function nd.clearCameraFx()
 	local cam = workspace.CurrentCamera;
-	if cam and (nd.cameraFxRoot ~= cam or not (nd.cameraFxWatch and nd.cameraFxWatch.Connected)) then
-		nd.disconnectConn(nd.cameraFxWatch); nd.cameraFxRoot = cam;
-		nd.queryEach(cam, "GuiObject, ParticleEmitter, Beam, Trail, BlurEffect, ColorCorrectionEffect, Sound", nd.clearCameraOne);
-		nd.replaceConn("cameraFxWatch", cam.DescendantAdded:Connect(function(d) task.defer(nd.clearCameraOne, d); end));
-	end;
 	local lighting = game.Lighting;
-	if nd.lightingFxRoot ~= lighting or not (nd.lightingFxWatch and nd.lightingFxWatch.Connected) then
-		nd.disconnectConn(nd.lightingFxWatch); nd.lightingFxRoot = lighting;
-		for _, d in lighting:GetChildren() do nd.clearLightingOne(d); end;
-		nd.replaceConn("lightingFxWatch", lighting.ChildAdded:Connect(function(d) task.defer(nd.clearLightingOne, d); end));
-	end;
 	local main = nd.ss and nd.ss:FindFirstChild("Main");
-	if main and (nd.soundFxRoot ~= main or not (nd.soundFxWatch and nd.soundFxWatch.Connected)) then
-		nd.disconnectConn(nd.soundFxWatch); nd.soundFxRoot = main;
-		nd.queryEach(main, "SoundEffect", nd.clearSoundFxOne);
-		nd.replaceConn("soundFxWatch", main.DescendantAdded:Connect(function(d) task.defer(nd.clearSoundFxOne, d); end));
+	local cameraCatchup = {};
+	local lightingCatchup = {};
+	local soundCatchup = {};
+
+	if cam and (nd.cameraFxRoot ~= cam or not (nd.cameraFxWatch and nd.cameraFxWatch.Connected)) then
+		nd.disconnectConn(nd.cameraFxWatch);
+		nd.cameraFxRoot = cam;
+		cameraCatchup = nd.queryDesc(cam, "GuiObject, ParticleEmitter, Beam, Trail, BlurEffect, ColorCorrectionEffect, Sound");
+		nd.replaceConn("cameraFxWatch", cam.DescendantAdded:Connect(function(d)
+			nd.clearCameraOne(d);
+		end));
 	end;
+
+	if nd.lightingFxRoot ~= lighting or not (nd.lightingFxWatch and nd.lightingFxWatch.Connected) then
+		nd.disconnectConn(nd.lightingFxWatch);
+		nd.lightingFxRoot = lighting;
+		for _, name in { "Sanity", "Dread", "OxygenCC", "OxygenBlur" } do
+			local hit = lighting:FindFirstChild(name);
+			if hit then
+				lightingCatchup[#lightingCatchup + 1] = hit;
+			end;
+		end;
+		nd.replaceConn("lightingFxWatch", lighting.ChildAdded:Connect(function(d)
+			nd.clearLightingOne(d);
+		end));
+	end;
+
+	if main and (nd.soundFxRoot ~= main or not (nd.soundFxWatch and nd.soundFxWatch.Connected)) then
+		nd.disconnectConn(nd.soundFxWatch);
+		nd.soundFxRoot = main;
+		soundCatchup = nd.queryDesc(main, "SoundEffect");
+		nd.replaceConn("soundFxWatch", main.DescendantAdded:Connect(function(d)
+			nd.clearSoundFxOne(d);
+		end));
+	end;
+
+	if #cameraCatchup == 0 and #lightingCatchup == 0 and #soundCatchup == 0 then
+		return;
+	end;
+	nd.cameraFxCatchupGeneration = (nd.cameraFxCatchupGeneration or 0) + 1;
+	local generation = nd.cameraFxCatchupGeneration;
+	task.defer(function()
+		local ci, li, si = 1, 1, 1;
+		while ci <= #cameraCatchup or li <= #lightingCatchup or si <= #soundCatchup do
+			if not nd.enabled or generation ~= nd.cameraFxCatchupGeneration then
+				return;
+			end;
+			for _ = 1, 2 do
+				local d = cameraCatchup[ci];
+				if not d then break; end;
+				nd.clearCameraOne(d);
+				ci += 1;
+			end;
+			local ld = lightingCatchup[li];
+			if ld then
+				nd.clearLightingOne(ld);
+				li += 1;
+			end;
+			for _ = 1, 2 do
+				local d = soundCatchup[si];
+				if not d then break; end;
+				nd.clearSoundFxOne(d);
+				si += 1;
+			end;
+			if ci <= #cameraCatchup or li <= #lightingCatchup or si <= #soundCatchup then
+				task.wait();
+			end;
+		end;
+	end);
 end;
+
 function nd.hookGcFuncs()
 	nd.gcScanned = true;
 end;
@@ -1773,22 +1869,20 @@ end;
 function nd.killJam()
 	local main = __lt.cm("SoundService", "FindFirstChild", "Main");
 	local j = main and main:FindFirstChild("Jamming");
-	if j and j:IsA("Sound") then
-		nd.trySet(j, "Volume", 0);
-		pcall(function() j:Stop(); end);
+	if j then
+		nd.hideGuiOne(j);
 	end;
 	local u = nd.ui();
 	if not u then
 		return;
 	end;
-	nd.queryEach(u, "#Jam, #Jamming", function(d)
-		if d:IsA("Sound") then
-			nd.trySet(d, "Volume", 0);
-			pcall(function() d:Stop(); end);
-		elseif d:IsA("GuiObject") then
-			nd.trySet(d, "Visible", false);
-		end;
-	end);
+	local it = u:FindFirstChild("Initiator");
+	local mg = it and it:FindFirstChild("Main_Game");
+	local health = mg and mg:FindFirstChild("Health");
+	if health then
+		nd.hideGuiOne(health:FindFirstChild("Jam"));
+		nd.hideGuiOne(health:FindFirstChild("Jamming"));
+	end;
 end;
 
 function nd.fixScreech()
@@ -1995,6 +2089,9 @@ function nd.hookBadRemotes()
 						return old(self, a[1], true);
 					end;
 				end;
+				if n == "climbladder" and m == "fireserver" then
+					nd.drop();
+				end;
 			end;
 			return old(self, ...);
 		end);
@@ -2121,35 +2218,18 @@ function nd.watchClimb(c)
 end;
 
 function nd.hookLadder()
-	if nd.ladHook then
+	if nd.badRemHook then
+		nd.ladHook = true;
 		return true;
 	end;
-	if typeof(nd.hm) ~= "function" or typeof(getnamecallmethod) ~= "function" or typeof(checkcaller) ~= "function" then
-		return false;
+	if type(nd.hookBadRemotes) == "function" then
+		nd.hookBadRemotes();
 	end;
-	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
-	local rem = remf and remf:FindFirstChild("ClimbLadder");
-	if not rem then
-		return false;
+	if nd.badRemHook then
+		nd.ladHook = true;
+		return true;
 	end;
-	local old;
-	local ok, hooked = pcall(function()
-		return nd.hm(game, "__namecall", function(self, ...)
-			local raw = getnamecallmethod and getnamecallmethod() or nil;
-			local method = typeof(raw) == "string" and raw:lower() or "";
-			if nd.enabled and not checkcaller() and self == rem and method == "fireserver" then
-				nd.drop();
-			end;
-			return old(self, ...);
-		end);
-	end);
-	if not ok or typeof(hooked) ~= "function" then
-		return false;
-	end;
-	old = hooked;
-	nd.ladMm = old;
-	nd.ladHook = true;
-	return true;
+	return false;
 end;
 
 function nd.hardCtx()
@@ -2173,15 +2253,30 @@ end;
 function nd.hardBypasses()
 	nd.hardChar();
 	nd.hardCtx();
-	nd.muteFx();
-	nd.hideGuiHard();
-	nd.clearCameraFx();
 	nd.hardDangerSweep();
 	nd.hardBypassLoop();
+	nd.fxCatchupGeneration = (nd.fxCatchupGeneration or 0) + 1;
+	local generation = nd.fxCatchupGeneration;
+	task.defer(function()
+		local function alive()
+			return nd.enabled and generation == nd.fxCatchupGeneration;
+		end;
+		if not alive() then return; end;
+		nd.killJam();
+		task.wait();
+		if not alive() then return; end;
+		nd.muteFx();
+		task.wait();
+		if not alive() then return; end;
+		nd.hideGuiHard();
+		task.wait();
+		if not alive() then return; end;
+		nd.clearCameraFx();
+	end);
 end;
 
 function nd.isAlmaModel(obj)
-	if not (obj and obj:IsA("Model")) then
+	if not obj or tostring(obj.ClassName or "") ~= "Model" then
 		return false;
 	end;
 	local n = tostring(obj.Name or ""):lower();
@@ -2309,9 +2404,10 @@ function nd.hookAlma()
 	return false;
 end;
 
-nd.perfPatchVersion = 3;
+nd.perfPatchVersion = 8;
 nd.dangerRoomSeen = nd.dangerRoomSeen or setmetatable({}, { __mode = "k" });
 nd.dangerFamilySeen = nd.dangerFamilySeen or setmetatable({}, { __mode = "k" });
+nd.dangerFamilyConns = nd.dangerFamilyConns or setmetatable({}, { __mode = "k" });
 
 function nd.trySet(obj, prop, val)
 	if not obj then
@@ -2562,8 +2658,70 @@ function nd.scanDangerFamily(root)
 	if not root or not root.Parent or nd.isFigureInst(root) then
 		return;
 	end;
-	nd.hardDangerOne(root);
-	nd.queryEach(root, "BasePart, Sound, ParticleEmitter, Beam, Trail, GuiObject, BlurEffect, ColorCorrectionEffect", nd.hardDangerOne);
+	nd.dangerFamilySeen = nd.dangerFamilySeen or setmetatable({}, { __mode = "k" });
+	nd.dangerFamilyConns = nd.dangerFamilyConns or setmetatable({}, { __mode = "k" });
+	local existing = nd.dangerFamilyConns[root];
+	if nd.dangerFamilySeen[root] and existing and existing.Connected then
+		return;
+	end;
+	nd.dangerFamilySeen[root] = true;
+	nd.disconnectConn(existing);
+	nd.hardDangerLeaf(root);
+	nd.queryEach(root, "BasePart, Sound, ParticleEmitter, Beam, Trail, GuiObject, BlurEffect, ColorCorrectionEffect", nd.hardDangerLeaf);
+	nd.dangerFamilyConns[root] = root.DescendantAdded:Connect(function(d)
+		if nd.enabled then
+			nd.hardDangerLeaf(d);
+		end;
+	end);
+end;
+
+function nd.handleDangerCandidate(d)
+	if not nd.enabled or not d then
+		return;
+	end;
+	local n = tostring(d.Name or ""):lower();
+	local lookman = nd.isLookman and nd.isLookman(d);
+	local danger = nd.isDangerName(n);
+	if not lookman and not danger then
+		if tostring(d.ClassName or "") == "Sound" then
+			nd.silenceSound(d);
+		end;
+		return;
+	end;
+	if nd.isFigureInst(d) then
+		return;
+	end;
+	if lookman then
+		nd.lookDownPart = d;
+		task.defer(nd.forceLookDown);
+	end;
+	if danger then
+		nd.scanDangerFamily(d);
+	end;
+end;
+
+function nd.handleDangerNamedCandidate(d)
+	if not nd.enabled or not d then
+		return;
+	end;
+	local n = tostring(d.Name or ""):lower();
+	local lookman = n:find("lookman", 1, true) ~= nil
+		or n:find("look man", 1, true) ~= nil
+		or n:find("look_man", 1, true) ~= nil;
+	local danger = nd.isDangerName(n);
+	if not lookman and not danger then
+		return;
+	end;
+	if nd.isFigureInst(d) then
+		return;
+	end;
+	if lookman then
+		nd.lookDownPart = d;
+		task.defer(nd.forceLookDown);
+	end;
+	if danger then
+		nd.scanDangerFamily(d);
+	end;
 end;
 
 function nd.hardDangerOne(d)
@@ -2598,26 +2756,53 @@ function nd.scanDangerRoom(room)
 	end;
 	nd.dangerRoomSeen = nd.dangerRoomSeen or setmetatable({}, { __mode = "k" });
 	nd.dangerRoomConns = nd.dangerRoomConns or setmetatable({}, { __mode = "k" });
-	if nd.dangerRoomSeen[room] and nd.dangerRoomConns[room] and nd.dangerRoomConns[room].Connected then
+	if nd.dangerActiveRoom == room and nd.dangerActiveConn and nd.dangerActiveConn.Connected then
 		return;
 	end;
+	if nd.dangerActiveRoom and nd.dangerActiveRoom ~= room then
+		nd.disconnectDangerRoom(nd.dangerActiveRoom);
+	end;
+	nd.disconnectConn(nd.dangerActiveConn);
+	nd.dangerActiveConn = nil;
+	nd.dangerActiveRoom = room;
 	nd.dangerRoomSeen[room] = true;
+	nd.dangerCatchupGeneration = (nd.dangerCatchupGeneration or 0) + 1;
+	local generation = nd.dangerCatchupGeneration;
 
-	nd.queryEach(room, "BasePart", nd.hardDangerOne);
-	for _, hit in nd.queryDesc(room, "#Lookman, #LookMan, #LookmanModule, #Look_Man") do
-		if nd.isLookman(hit) then
-			nd.lookDownPart = hit;
-			task.defer(nd.forceLookDown);
-			break;
-		end;
+	local conn = room.DescendantAdded:Connect(function(d)
+		nd.handleDangerCandidate(d);
+	end);
+	nd.dangerActiveConn = conn;
+	nd.dangerRoomConns[room] = conn;
+
+	local exactSelector = "#Snare, #Giggle, #Surge, #Egg, #SeekSlop, #Eyes, #Dread, #Screech, #A90, #Jumpscare, #SeekEye, #GlitchCube, #Hallucination, #Lookman, #LookMan, #LookmanModule, #Look Man, #Look_Man";
+	for _, d in nd.queryDesc(room, exactSelector) do
+		nd.handleDangerCandidate(d);
 	end;
 
-	nd.disconnectDangerRoom(room);
-	nd.dangerRoomConns[room] = room.DescendantAdded:Connect(function(d)
-		if nd.enabled then
-			nd.hardDangerOne(d);
-		end;
-	end);
+	local catchup = nd.queryDesc(room, "Model, Folder, ModuleScript");
+	if #catchup > 0 then
+		task.defer(function()
+			local index = 1;
+			while index <= #catchup do
+				if not nd.enabled
+					or generation ~= nd.dangerCatchupGeneration
+					or nd.dangerActiveRoom ~= room
+					or not room.Parent
+				then
+					return;
+				end;
+				local last = math.min(index + 7, #catchup);
+				for i = index, last do
+					nd.handleDangerNamedCandidate(catchup[i]);
+				end;
+				index = last + 1;
+				if index <= #catchup then
+					task.wait();
+				end;
+			end;
+		end);
+	end;
 end;
 
 function nd.watchDangerRoot(root, key)
@@ -2661,18 +2846,17 @@ function nd.watchDangerRoot(root, key)
 		return;
 	end;
 
-	local selector = "BasePart, Sound, ParticleEmitter, Beam, Trail, GuiObject, BlurEffect, ColorCorrectionEffect";
 	if key == "dangerEntWatch" then
 		if nd.dangerEntRoot == root and nd.dangerEntWatch and nd.dangerEntWatch.Connected then
 			return;
 		end;
 		nd.disconnectConn(nd.dangerEntWatch);
 		nd.dangerEntRoot = root;
-		nd.queryEach(root, selector, nd.hardDangerOne);
+		for _, d in root:GetChildren() do
+			nd.handleDangerCandidate(d);
+		end;
 		nd.replaceConn("dangerEntWatch", root.DescendantAdded:Connect(function(d)
-			if nd.enabled then
-				nd.hardDangerOne(d);
-			end;
+			nd.handleDangerCandidate(d);
 		end));
 		return;
 	end;
@@ -2682,11 +2866,11 @@ function nd.watchDangerRoot(root, key)
 		end;
 		nd.disconnectConn(nd.dangerCamWatch);
 		nd.dangerCamRoot = root;
-		nd.queryEach(root, selector, nd.hardDangerOne);
+		for _, d in root:GetChildren() do
+			nd.handleDangerCandidate(d);
+		end;
 		nd.replaceConn("dangerCamWatch", root.DescendantAdded:Connect(function(d)
-			if nd.enabled then
-				nd.hardDangerOne(d);
-			end;
+			nd.handleDangerCandidate(d);
 		end));
 	end;
 end;
@@ -2726,18 +2910,22 @@ function nd.handleAlmaCandidate(d)
 		task.defer(nd.killAlmaAudio);
 		return;
 	end;
-	if d:IsA("Model") and (n == "alma" or n == "_despawningalma" or nd.isAlmaModel(d)) then
+	if not n:find("alma", 1, true) then
+		return;
+	end;
+	local cls = tostring(d.ClassName or "");
+	if cls == "Model" and (n == "alma" or n == "_despawningalma" or nd.isAlmaModel(d)) then
 		task.defer(nd.killAlmaModel, d);
 		return;
 	end;
-	if d:IsA("Sound") and n:find("alma", 1, true) then
+	if cls == "Sound" then
 		nd.silenceAlmaSound(d);
 	end;
 end;
 
 function nd.startAlmaBypass()
-	nd.killAlmaAudio();
-	nd.hookAlma();
+	nd.almaSetupGeneration = (nd.almaSetupGeneration or 0) + 1;
+	local generation = nd.almaSetupGeneration;
 	for _, key in { "almaWatch", "almaMiscWatch", "almaEntitiesWatch", "almaRoomsWatch", "almaClientWatch" } do
 		nd.disconnectConn(nd[key]);
 		nd[key] = nil;
@@ -2802,6 +2990,13 @@ function nd.startAlmaBypass()
 			nd.handleAlmaCandidate(d);
 		end;
 	end;
+	task.defer(function()
+		if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
+		nd.killAlmaAudio();
+		task.wait();
+		if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
+		nd.hookAlma();
+	end);
 end;
 
 function nd.plugRun(ctx)
@@ -2828,19 +3023,17 @@ function nd.plugRun(ctx)
 		end;
 		nd.jobsConfigured = true;
 	end;
-	nd.killJam();
 	nd.startDoors();
 	nd.fixScreech();
 	nd.setModsHooks();
 	nd.startAlmaBypass();
 	nd.bindChar();
-	nd.hookLadder();
 	nd.crouchLoop();
-	nd.a90UiMute();
 	nd.promptExtreme();
-	nd.hookBadRemotes();
 	nd.wireMinis();
 	nd.hardBypasses();
+	nd.hookBadRemotes();
+	nd.hookLadder();
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local a90Rem = remf and remf:FindFirstChild("A90");
 	if a90Rem and (not nd.a90Hook) and (not nd.a90Attr) then
