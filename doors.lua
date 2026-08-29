@@ -2108,57 +2108,6 @@ function nd.wireMinis()
 	end;
 end;
 
-function nd.hookBadRemotes()
-	if nd.badRemHook then
-		return;
-	end;
-	if typeof(nd.hm) ~= "function" or typeof(getnamecallmethod) ~= "function" or typeof(checkcaller) ~= "function" then
-		return;
-	end;
-	local hookTarget = nd.rsrv or __lt.cs("ReplicatedStorage", __lt.cr);
-	if typeof(hookTarget) ~= "Instance" then
-		return;
-	end;
-	local old;
-	local ok, hooked = pcall(function()
-		return nd.hm(hookTarget, "__namecall", function(self, ...)
-			if not nd.enabled then
-				return old(self, ...);
-			end;
-			local raw = getnamecallmethod();
-			local m = typeof(raw) == "string" and raw:lower() or "";
-			if not checkcaller() and typeof(self) == "Instance" and (m == "fireserver" or m == "invokeserver") then
-				local n = self.Name:lower();
-				if n:find("lookman", 1, true) or n:find("look_man", 1, true) or n:find("look man", 1, true) then
-					nd.forceLookDown();
-					return nil;
-				end;
-				if n == "a90" and m == "fireserver" then
-					return old(self, "didnt");
-				end;
-				if n == "screech" and m == "fireserver" then
-					return old(self, true);
-				end;
-				if n == "clutchheartbeat" and m == "fireserver" then
-					local a = { ... };
-					if a[2] == false then
-						return old(self, a[1], true);
-					end;
-				end;
-				if n == "climbladder" and m == "fireserver" then
-					nd.drop();
-				end;
-			end;
-			return old(self, ...);
-		end);
-	end);
-	if ok and typeof(hooked) == "function" then
-		old = hooked;
-		nd.badRemHook = true;
-		nd.badRemOld = old;
-	end;
-end;
-
 function nd.hookSpider()
 	if nd.spidHook then
 		return;
@@ -2302,18 +2251,8 @@ function nd.watchClimb(c)
 end;
 
 function nd.hookLadder()
-	if nd.badRemHook then
-		nd.ladHook = true;
-		return true;
-	end;
-	if type(nd.hookBadRemotes) == "function" then
-		nd.hookBadRemotes();
-	end;
-	if nd.badRemHook then
-		nd.ladHook = true;
-		return true;
-	end;
-	return false;
+	nd.ladHook = true;
+	return true;
 end;
 
 function nd.hardCtx()
@@ -3427,7 +3366,6 @@ function nd.plugRun(ctx)
 	nd.promptExtreme();
 	nd.wireMinis();
 	nd.hardBypasses();
-	nd.hookBadRemotes();
 	nd.hookLadder();
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local a90Rem = remf and remf:FindFirstChild("A90");
