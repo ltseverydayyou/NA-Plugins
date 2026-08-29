@@ -183,7 +183,7 @@ function nd.cleanupRuntime()
 		pcall(nd.restoreConns);
 	end;
 	for _, key in {
-		"roomConn", "attrConn", "crouchConn", "charConn", "pgConn", "modsConn", "screechFlagConn", "screechBypassConn", "a90Attr",
+		"roomConn", "attrConn", "crouchConn", "charConn", "pgConn", "modsConn", "screechFlagConn", "screechBypassConn", "a90Attr", "speedMoveConn", "speedCharConn",
 		"promptConn", "pgPromptConn", "hbConn", "miniConn", "remWatch", "extraConn", "hardConn",
 		"remoteWatch2", "frWatch2", "gcScanConn", "hconn", "dangerRoomsWatch", "dangerEntWatch",
 		"dangerCamWatch", "uiHardWatch", "cameraFxWatch", "soundFxWatch", "lightingFxWatch", "muteFxUiWatch",
@@ -224,6 +224,14 @@ function nd.cleanupRuntime()
 	nd.screechFlag = nil;
 	nd.screechOriginal = nil;
 	nd.screechHook = false;
+	if type(nd.stopSpeedAssist) == "function" then pcall(nd.stopSpeedAssist, true); end;
+	if type(nd.restoreDoorTransparency) == "function" then pcall(nd.restoreDoorTransparency); end;
+	if nd.doorVisualRoomConns then
+		for room, conn in pairs(nd.doorVisualRoomConns) do
+			nd.disconnectConn(conn);
+			nd.doorVisualRoomConns[room] = nil;
+		end;
+	end;
 	if screechFlag and screechFlag.Parent and screechFlag:IsA("BoolValue") and type(screechOriginal) == "boolean" then
 		pcall(function()
 			screechFlag.Value = screechOriginal;
@@ -265,6 +273,8 @@ nd.rs = __lt.cs("RunService", __lt.cr);
 nd.plrs = __lt.cs("Players", __lt.cr);
 nd.ss = __lt.cs("SoundService", __lt.cr);
 nd.rsrv = __lt.cs("ReplicatedStorage", __lt.cr);
+nd.uis = __lt.cs("UserInputService", __lt.cr);
+nd.cas = __lt.cs("ContextActionService", __lt.cr);
 nd.hf = hookfunction;
 nd.hm = hookmetamethod;
 nd.hasHook = typeof(nd.hf) == "function";
@@ -2554,6 +2564,261 @@ function nd.getCtx()
 	return nil, mg;
 end;
 
+nd.doorTransparencyOriginal = nd.doorTransparencyOriginal or setmetatable({}, { __mode = "k" });
+nd.doorVisualRoomConns = nd.doorVisualRoomConns or setmetatable({}, { __mode = "k" });
+function nd.isDoorVisualName(name)
+	local n = tostring(name or ""):lower();
+	return n:find("door", 1, true) ~= nil and n:find("doorframe", 1, true) == nil and n:find("door_frame", 1, true) == nil;
+end;
+function nd.getDoorVisualOwner(inst)
+	local rooms = workspace:FindFirstChild("CurrentRooms");
+	local cur = inst;
+	while cur and cur ~= rooms do
+		local parent = cur.Parent;
+		if parent and parent.Parent == rooms and nd.isDoorVisualName(cur.Name) then
+			return cur;
+		end;
+		cur = parent;
+	end;
+	return nil;
+end;
+function nd.getDoorVisualAlpha(owner)
+	local ev = owner and owner:FindFirstChild("ClientOpen");
+	return ev and ev:IsA("RemoteEvent") and 0.5 or 0.9;
+end;
+function nd.setDoorPartTransparency(part, alpha)
+	if not (part and part:IsA("BasePart")) then return; end;
+	nd.doorTransparencyOriginal = nd.doorTransparencyOriginal or setmetatable({}, { __mode = "k" });
+	if nd.doorTransparencyOriginal[part] == nil then
+		nd.doorTransparencyOriginal[part] = part.LocalTransparencyModifier;
+	end;
+	part.LocalTransparencyModifier = alpha;
+end;
+function nd.styleDoorOwner(owner)
+	if not owner then return; end;
+	local alpha = nd.getDoorVisualAlpha(owner);
+	if owner:IsA("BasePart") then
+		nd.setDoorPartTransparency(owner, alpha);
+		return;
+	end;
+	nd.queryEach(owner, "BasePart", function(part)
+		nd.setDoorPartTransparency(part, alpha);
+	end);
+end;
+function nd.styleDoorCandidate(inst)
+	if not inst then return; end;
+	if inst.Name == "ClientOpen" and inst:IsA("RemoteEvent") then
+		local owner = nd.getDoorVisualOwner(inst.Parent);
+		if owner then nd.styleDoorOwner(owner); end;
+		return;
+	end;
+	local owner = nd.getDoorVisualOwner(inst);
+	if not owner then return; end;
+	if inst == owner then
+		nd.styleDoorOwner(owner);
+	elseif inst:IsA("BasePart") then
+		nd.setDoorPartTransparency(inst, nd.getDoorVisualAlpha(owner));
+	end;
+end;
+function nd.bindDoorVisualRoom(room)
+	if not (room and room.Parent) then return; end;
+	nd.doorVisualRoomConns = nd.doorVisualRoomConns or setmetatable({}, { __mode = "k" });
+	local old = nd.doorVisualRoomConns[room];
+	if old and old.Connected then return; end;
+	if old then nd.disconnectConn(old); end;
+	for _, child in room:GetChildren() do
+		if nd.isDoorVisualName(child.Name) then
+			nd.styleDoorOwner(child);
+		end;
+	end;
+	nd.doorVisualRoomConns[room] = room.DescendantAdded:Connect(function(inst)
+		if nd.enabled then nd.styleDoorCandidate(inst); end;
+	end);
+end;
+function nd.startDoorVisuals(rooms)
+	rooms = rooms or workspace:FindFirstChild("CurrentRooms");
+	if not rooms then return; end;
+	for room, conn in pairs(nd.doorVisualRoomConns or {}) do
+		if not room.Parent then
+			nd.disconnectConn(conn);
+			nd.doorVisualRoomConns[room] = nil;
+		end;
+	end;
+	for _, room in rooms:GetChildren() do
+		nd.bindDoorVisualRoom(room);
+	end;
+end;
+function nd.restoreDoorTransparency()
+	local map = nd.doorTransparencyOriginal;
+	if type(map) ~= "table" then return; end;
+	for part, value in pairs(map) do
+		if part and part.Parent and part:IsA("BasePart") then
+			pcall(function() part.LocalTransparencyModifier = value; end);
+		end;
+		map[part] = nil;
+	end;
+end;
+
+nd.speedActionName = "NADoorsSpeedMove";
+nd.speedKeys = nd.speedKeys or {};
+nd.speedMoveAccum = 0;
+function nd.speedHumanoid()
+	local c = nd.gch();
+	return c and c:FindFirstChildOfClass("Humanoid") or nil, c;
+end;
+function nd.speedClearKeys()
+	for k in pairs(nd.speedKeys) do nd.speedKeys[k] = nil; end;
+end;
+function nd.stopSpeedAssist(restore)
+	nd.speedAssistActive = false;
+	nd.speedMoveAccum = 0;
+	nd.speedClearKeys();
+	if nd.cas then
+		pcall(nd.cas.UnbindAction, nd.cas, nd.speedActionName);
+	end;
+	nd.disconnectConn(nd.speedMoveConn); nd.speedMoveConn = nil;
+	nd.disconnectConn(nd.speedCharConn); nd.speedCharConn = nil;
+	if restore then
+		local hum = nd.speedHumanoid();
+		if hum and type(nd.speedOriginalWalkSpeed) == "number" then
+			pcall(function() hum.WalkSpeed = nd.speedOriginalWalkSpeed; end);
+		end;
+		nd.speedTarget = nil;
+		nd.speedOriginalWalkSpeed = nil;
+	end;
+end;
+function nd.speedInputHandler(_, state, input)
+	if nd.uis then
+		local ok, box = pcall(nd.uis.GetFocusedTextBox, nd.uis);
+		if ok and box then
+			nd.speedClearKeys();
+			return Enum.ContextActionResult.Pass;
+		end;
+	end;
+	local key = input and input.KeyCode;
+	local map = {
+		[Enum.KeyCode.W] = "W"; [Enum.KeyCode.Up] = "W";
+		[Enum.KeyCode.S] = "S"; [Enum.KeyCode.Down] = "S";
+		[Enum.KeyCode.A] = "A"; [Enum.KeyCode.Left] = "A";
+		[Enum.KeyCode.D] = "D"; [Enum.KeyCode.Right] = "D";
+	};
+	local slot = map[key];
+	if slot then
+		if state == Enum.UserInputState.Begin then
+			nd.speedKeys[slot] = true;
+		elseif state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
+			nd.speedKeys[slot] = nil;
+		end;
+	end;
+	return Enum.ContextActionResult.Sink;
+end;
+function nd.speedDirection()
+	local forward = (nd.speedKeys.W and 1 or 0) - (nd.speedKeys.S and 1 or 0);
+	local side = (nd.speedKeys.D and 1 or 0) - (nd.speedKeys.A and 1 or 0);
+	if forward == 0 and side == 0 then return nil; end;
+	local cam = workspace.CurrentCamera;
+	if not cam then return nil; end;
+	local look = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z);
+	local right = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z);
+	if look.Magnitude < 0.001 or right.Magnitude < 0.001 then return nil; end;
+	local move = look.Unit * forward + right.Unit * side;
+	return move.Magnitude > 0.001 and move.Unit or nil;
+end;
+function nd.speedCanMove(char, root)
+	if not char or not root or root.Anchored then return false; end;
+	for _, attr in { "Hiding", "Climbing", "Stunned", "Giggled", "InCutscene", "Animating" } do
+		if char:GetAttribute(attr) then return false; end;
+	end;
+	return true;
+end;
+function nd.speedBindCharacter(char)
+	if not char then return; end;
+	local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5);
+	if hum and nd.speedAssistActive then
+		pcall(function() hum.WalkSpeed = 16; end);
+	end;
+end;
+function nd.startSpeedAssist(target)
+	target = math.clamp(tonumber(target) or 20, 20.01, 250);
+	local hum = nd.speedHumanoid();
+	if nd.speedOriginalWalkSpeed == nil and hum then
+		nd.speedOriginalWalkSpeed = tonumber(hum.WalkSpeed) or 16;
+	end;
+	nd.stopSpeedAssist(false);
+	nd.speedTarget = target;
+	nd.speedAssistActive = true;
+	nd.speedMoveAccum = 0;
+	if hum then pcall(function() hum.WalkSpeed = 16; end); end;
+	if nd.cas then
+		pcall(nd.cas.BindActionAtPriority, nd.cas, nd.speedActionName, nd.speedInputHandler, false, Enum.ContextActionPriority.High.Value + 100,
+			Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
+			Enum.KeyCode.Up, Enum.KeyCode.Left, Enum.KeyCode.Down, Enum.KeyCode.Right);
+	end;
+	local p = nd.lp();
+	if p then
+		nd.replaceConn("speedCharConn", p.CharacterAdded:Connect(function(char)
+			task.defer(nd.speedBindCharacter, char);
+		end));
+	end;
+	if nd.rs then
+		nd.replaceConn("speedMoveConn", nd.rs.Heartbeat:Connect(function(dt)
+			if not nd.speedAssistActive then return; end;
+			local hum2, char = nd.speedHumanoid();
+			local root = char and (char.PrimaryPart or char:FindFirstChild("HumanoidRootPart"));
+			if hum2 then pcall(hum2.Move, hum2, Vector3.zero, false); end;
+			if root then
+				local vel = root.AssemblyLinearVelocity;
+				root.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0);
+			end;
+			if nd.uis then
+				local ok, box = pcall(nd.uis.GetFocusedTextBox, nd.uis);
+				if ok and box then nd.speedClearKeys(); return; end;
+			end;
+			if not nd.speedCanMove(char, root) then return; end;
+			local dir = nd.speedDirection();
+			if not dir then return; end;
+			nd.speedMoveAccum += math.min(tonumber(dt) or 0, 0.05);
+			if nd.speedMoveAccum < 0.05 then return; end;
+			local stepDt = math.min(nd.speedMoveAccum, 0.1);
+			nd.speedMoveAccum = 0;
+			local distance = (tonumber(nd.speedTarget) or 20) * stepDt;
+			nd.speedRayParams = nd.speedRayParams or RaycastParams.new();
+			nd.speedRayParams.FilterType = Enum.RaycastFilterType.Exclude;
+			nd.speedRayParams.FilterDescendantsInstances = { char };
+			nd.speedRayParams.IgnoreWater = true;
+			local hit = workspace:Raycast(root.Position, dir * (distance + 1.25), nd.speedRayParams);
+			if hit then distance = math.min(distance, math.max(0, hit.Distance - 1.25)); end;
+			if distance > 0.01 then
+				root.CFrame = root.CFrame + dir * distance;
+			end;
+		end));
+	end;
+end;
+function nd.speedCmd(...)
+	local vals = { ... };
+	local raw = vals[1];
+	if type(raw) == "table" then raw = raw[1] or raw.Value or raw.value; end;
+	local text = tostring(raw or "16"):lower();
+	if text == "off" or text == "reset" or text == "default" then
+		nd.stopSpeedAssist(true);
+		local hum = nd.speedHumanoid();
+		if hum then hum.WalkSpeed = 16; end;
+		return "Speed: 16";
+	end;
+	local target = tonumber(text);
+	if not target then return "Speed must be a number or default"; end;
+	target = math.clamp(target, 0, 250);
+	local hum = nd.speedHumanoid();
+	if nd.speedOriginalWalkSpeed == nil and hum then nd.speedOriginalWalkSpeed = tonumber(hum.WalkSpeed) or 16; end;
+	if target <= 20 then
+		nd.stopSpeedAssist(false);
+		nd.speedTarget = target;
+		if hum then hum.WalkSpeed = target; end;
+		return "Speed: " .. tostring(target) .. " (WalkSpeed)";
+	end;
+	nd.startSpeedAssist(target);
+	return "Speed: " .. tostring(target) .. " (DOORS movement assist)";
+end;
 function nd.startDoors()
 	for _, key in { "roomConn", "doorLatestConn", "doorRoomsConn", "doorRoomDescConn", "doorWorkspaceConn" } do
 		nd.disconnectConn(nd[key]);
@@ -2605,6 +2870,7 @@ function nd.startDoors()
 		if not (currentRooms and currentRooms.Parent) then
 			currentRooms = workspace:FindFirstChild("CurrentRooms");
 		end;
+		nd.startDoorVisuals(currentRooms);
 
 		nd.disconnectConn(nd.doorLatestConn);
 		nd.doorLatestConn = nil;
@@ -2616,6 +2882,7 @@ function nd.startDoors()
 		nd.doorRoomsConn = nil;
 		if currentRooms then
 			nd.replaceConn("doorRoomsConn", currentRooms.ChildAdded:Connect(function(room)
+				nd.bindDoorVisualRoom(room);
 				if latestRoom and tostring(latestRoom.Value) == room.Name then
 					resolveDoor();
 				end;
@@ -3127,6 +3394,24 @@ plugin:cmd("nadoors", "doorsna")
 		ctx:notify("NA Doors loaded", 3);
 	end);
 
+plugin:cmd("speed", "walkspeed", "ws")
+	:OverrideAliases()
+	:args("[number|default]")
+	:info("DOORS-safe speed; values above 20 use movement-assisted teleport steps")
+	:run(function(ctx, ...)
+		nd.cmdCtx = ctx;
+		local msg = nd.speedCmd(...);
+		if msg ~= nil then ctx:notify(tostring(msg), 3); end;
+	end);
+
+plugin:cmd("unspeed", "unwalkspeed", "unws")
+	:OverrideAliases()
+	:info("Restores normal walking speed and disables DOORS movement assist")
+	:run(function(ctx)
+		nd.cmdCtx = ctx;
+		local msg = nd.speedCmd("default");
+		if msg ~= nil then ctx:notify(tostring(msg), 3); end;
+	end);
 plugin:cmd("doordist", "dooropenrange", "clientopendist", "clientopenrange")
 	:args("[distance|inf]")
 	:info("Sets ClientOpen fire distance")
