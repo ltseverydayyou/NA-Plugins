@@ -1814,6 +1814,245 @@ function nd.autoBreaker()
 		end);
 	end;
 end;
+nd.dangerFamilyMembers = nd.dangerFamilyMembers or setmetatable({}, { __mode = "k" });
+nd.dangerRootScanned = nd.dangerRootScanned or setmetatable({}, { __mode = "k" });
+
+function nd.trySet(obj, prop, val)
+	if not obj then
+		return false;
+	end;
+	local okRead, current = pcall(function()
+		return obj[prop];
+	end);
+	if okRead and current == val then
+		return true;
+	end;
+	return pcall(function()
+		obj[prop] = val;
+	end);
+end;
+
+function nd.tryAttr(obj, key, val)
+	if not obj then
+		return false;
+	end;
+	local okRead, current = pcall(obj.GetAttribute, obj, key);
+	if okRead and current == val then
+		return true;
+	end;
+	return pcall(obj.SetAttribute, obj, key, val);
+end;
+
+function nd.getCtx()
+	local mg = nd.getMainGame();
+	if not (mg and mg:IsA("ModuleScript")) then
+		nd.ctxModule = nil;
+		nd.ctxCache = nil;
+		return nil, mg;
+	end;
+	if nd.ctxModule == mg and type(nd.ctxCache) == "table" then
+		return nd.ctxCache, mg;
+	end;
+	local ok, ctx = nd.safeRequire(mg);
+	if ok and type(ctx) == "table" then
+		nd.ctxModule = mg;
+		nd.ctxCache = ctx;
+		return ctx, mg;
+	end;
+	nd.ctxModule = nil;
+	nd.ctxCache = nil;
+	nd.moduleFallback(mg, "main_game");
+	return nil, mg;
+end;
+
+function nd.isProgressionBusy()
+	local c = nd.gch();
+	if c and (c:GetAttribute("InCutscene") == true or c:GetAttribute("Animating") == true or c:GetAttribute("InMinigame") == true) then
+		return true;
+	end;
+	local gd = nd.progressGameData;
+	if not (gd and gd.Parent) then
+		gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+		nd.progressGameData = gd;
+		nd.progressCutscene = gd and gd:FindFirstChild("InCutscene") or nil;
+	end;
+	local cutscene = nd.progressCutscene;
+	if cutscene and not cutscene.Parent then
+		cutscene = gd and gd:FindFirstChild("InCutscene") or nil;
+		nd.progressCutscene = cutscene;
+	end;
+	return cutscene and cutscene:IsA("BoolValue") and cutscene.Value == true or false;
+end;
+
+function nd.isDangerRootName(n)
+	return nd.delExact[n] == true
+		or n:find("jumpscare", 1, true) ~= nil
+		or n:find("screech", 1, true) ~= nil
+		or n:find("dread", 1, true) ~= nil
+		or n:find("seekeye", 1, true) ~= nil
+		or n:find("glitchcube", 1, true) ~= nil
+		or n:find("hallucination", 1, true) ~= nil;
+end;
+
+function nd.isDangerCandidate(d, n)
+	if not d then
+		return false;
+	end;
+	if nd.dangerFamilyMembers[d.Parent] then
+		return true;
+	end;
+	n = n or tostring(d.Name or ""):lower();
+	if n:find("alma", 1, true) then
+		return true;
+	end;
+	if nd.isLookman and nd.isLookman(d) then
+		return true;
+	end;
+	if nd.isDangerRootName(n) then
+		return true;
+	end;
+	if d:IsA("Sound") then
+		return true;
+	end;
+	if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+		return n:find("spark", 1, true) ~= nil or n:find("scare", 1, true) ~= nil or n:find("fog", 1, true) ~= nil;
+	end;
+	return false;
+end;
+
+function nd.hardDangerFamilyOne(d)
+	if not d then
+		return;
+	end;
+	nd.dangerFamilyMembers[d] = true;
+	if d:IsA("BasePart") then
+		nd.trySet(d, "CanTouch", false);
+		nd.trySet(d, "CanQuery", false);
+	elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+		nd.trySet(d, "Enabled", false);
+	elseif d:IsA("Sound") then
+		nd.silenceSound(d);
+	elseif d:IsA("GuiObject") then
+		nd.trySet(d, "Visible", false);
+	elseif d:IsA("BlurEffect") or d:IsA("ColorCorrectionEffect") then
+		nd.trySet(d, "Enabled", false);
+	end;
+end;
+
+function nd.scanDangerFamily(root)
+	if not root or nd.dangerRootScanned[root] then
+		return;
+	end;
+	nd.dangerRootScanned[root] = true;
+	local generation = nd.scanGeneration or 0;
+	task.spawn(function()
+		local ok, list = pcall(root.GetDescendants, root);
+		if not ok or type(list) ~= "table" then
+			return;
+		end;
+		for i, d in ipairs(list) do
+			if generation ~= (nd.scanGeneration or 0) or not nd.enabled then
+				return;
+			end;
+			nd.hardDangerFamilyOne(d);
+			if i % 250 == 0 then
+				task.wait();
+			end;
+		end;
+	end);
+end;
+
+function nd.hardDangerOne(d)
+	if not d then
+		return;
+	end;
+	if nd.dangerFamilyMembers[d.Parent] then
+		nd.hardDangerFamilyOne(d);
+		return;
+	end;
+	local n = tostring(d.Name or ""):lower();
+	if n:find("alma", 1, true) and type(nd.handleAlmaDescendant) == "function" then
+		nd.handleAlmaDescendant(d);
+		return;
+	end;
+	if nd.isLookman and nd.isLookman(d) then
+		nd.lookDownPart = d;
+		task.defer(nd.forceLookDown);
+	end;
+	if d:IsA("Sound") then
+		nd.silenceSound(d);
+	end;
+	if not nd.isDangerRootName(n) then
+		if d:IsA("ParticleEmitter") and (n:find("spark", 1, true) or n:find("scare", 1, true) or n:find("fog", 1, true)) then
+			nd.trySet(d, "Enabled", false);
+		end;
+		return;
+	end;
+	if nd.isFigureInst(d) then
+		return;
+	end;
+	nd.hardDangerFamilyOne(d);
+	nd.scanDangerFamily(d);
+end;
+
+function nd.scanDangerRoot(root)
+	if not root then
+		return;
+	end;
+	local generation = nd.scanGeneration or 0;
+	task.spawn(function()
+		local ok, list = pcall(root.GetDescendants, root);
+		if not ok or type(list) ~= "table" then
+			return;
+		end;
+		for i, d in ipairs(list) do
+			if generation ~= (nd.scanGeneration or 0) or not nd.enabled then
+				return;
+			end;
+			local n = tostring(d.Name or ""):lower();
+			if nd.isDangerCandidate(d, n) then
+				nd.hardDangerOne(d);
+			end;
+			if i % 300 == 0 then
+				task.wait();
+			end;
+		end;
+	end);
+end;
+
+function nd.watchDangerRoot(root, key)
+	if not root then
+		return;
+	end;
+	nd.dangerSeenRoots = nd.dangerSeenRoots or setmetatable({}, { __mode = "k" });
+	if nd.dangerSeenRoots[root] and nd[key] and nd[key].Connected then
+		return;
+	end;
+	nd.dangerSeenRoots[root] = true;
+	nd.scanDangerRoot(root);
+	nd.replaceConn(key, root.DescendantAdded:Connect(function(d)
+		if not nd.enabled then
+			return;
+		end;
+		local n = tostring(d.Name or ""):lower();
+		if nd.isDangerCandidate(d, n) then
+			nd.hardDangerOne(d);
+		end;
+	end));
+end;
+
+function nd.hardDangerSweep()
+	nd.watchDangerRoot(workspace:FindFirstChild("CurrentRooms"), "dangerRoomsWatch");
+	nd.watchDangerRoot(workspace:FindFirstChild("Entities"), "dangerEntWatch");
+	nd.watchDangerRoot(workspace.CurrentCamera, "dangerCamWatch");
+	for _, d in workspace:GetChildren() do
+		local n = tostring(d.Name or ""):lower();
+		if nd.isDangerCandidate(d, n) then
+			nd.hardDangerOne(d);
+		end;
+	end;
+end;
+
 function nd.wireMinis()
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	if not remf then
@@ -3135,16 +3374,24 @@ local oldCleanupRuntime = nd.cleanupRuntime;
 function nd.cleanupRuntime()
 	nd.enabled = false;
 	nd.loaded = false;
-	nd.disconnectConn(nd.almaWatch);
-	nd.almaWatch = nil;
-	nd.disconnectConn(nd.almaClientWatch);
-	nd.almaClientWatch = nil;
+	nd.jobsConfigGeneration = (nd.jobsConfigGeneration or 0) + 1;
+	nd.jobsConfigRunning = false;
+	for _, key in { "almaWatch", "almaClientWatch", "almaMiscWatch", "almaEntityWatch" } do
+		nd.disconnectConn(nd[key]);
+		nd[key] = nil;
+	end;
 	if nd._env and nd.originalFpp and nd._env.fireproximityprompt == nd.customFpp then
 		nd._env.fireproximityprompt = nd.originalFpp;
 	end;
 	if type(oldCleanupRuntime) == "function" then
 		oldCleanupRuntime();
 	end;
+	nd.dangerFamilyMembers = setmetatable({}, { __mode = "k" });
+	nd.dangerRootScanned = setmetatable({}, { __mode = "k" });
+	nd.ctxModule = nil;
+	nd.ctxCache = nil;
+	nd.progressGameData = nil;
+	nd.progressCutscene = nil;
 end;
 nd.cleanup = nd.cleanupRuntime;
 
@@ -3285,14 +3532,74 @@ function nd.hookAlma()
 	return false;
 end;
 
+function nd.bindAlmaMisc(misc)
+	nd.disconnectConn(nd.almaMiscWatch);
+	nd.almaMiscWatch = nil;
+	if not misc then
+		return;
+	end;
+	local existing = misc:FindFirstChild("AlmaAudioContainer");
+	if existing then
+		task.defer(nd.killAlmaAudio);
+	end;
+	nd.replaceConn("almaMiscWatch", misc.ChildAdded:Connect(function(ch)
+		if nd.enabled and ch.Name == "AlmaAudioContainer" then
+			task.defer(nd.killAlmaAudio);
+		end;
+	end));
+end;
+
+function nd.bindAlmaEntities(root)
+	nd.disconnectConn(nd.almaEntityWatch);
+	nd.almaEntityWatch = nil;
+	if not root then
+		return;
+	end;
+	for _, ch in root:GetChildren() do
+		local n = tostring(ch.Name or ""):lower();
+		if n:find("alma", 1, true) then
+			task.defer(nd.handleAlmaDescendant, ch);
+		end;
+	end;
+	nd.replaceConn("almaEntityWatch", root.ChildAdded:Connect(function(ch)
+		if not nd.enabled then
+			return;
+		end;
+		local n = tostring(ch.Name or ""):lower();
+		if n:find("alma", 1, true) then
+			task.defer(nd.handleAlmaDescendant, ch);
+		end;
+	end));
+end;
+
 function nd.startAlmaBypass()
 	nd.killAlmaAudio();
 	nd.hookAlma();
 	nd.disconnectConn(nd.almaWatch);
 	nd.almaWatch = nil;
-	nd.replaceConn("almaWatch", workspace.DescendantAdded:Connect(function(d)
-		if nd.enabled then
-			task.defer(nd.handleAlmaDescendant, d);
+	nd.bindAlmaMisc(workspace:FindFirstChild("Misc"));
+	nd.bindAlmaEntities(workspace:FindFirstChild("Entities"));
+	for _, ch in workspace:GetChildren() do
+		local n = tostring(ch.Name or ""):lower();
+		if n:find("alma", 1, true) then
+			task.defer(nd.handleAlmaDescendant, ch);
+		end;
+	end;
+	nd.replaceConn("almaWatch", workspace.ChildAdded:Connect(function(ch)
+		if not nd.enabled then
+			return;
+		end;
+		if ch.Name == "Misc" then
+			nd.bindAlmaMisc(ch);
+			return;
+		end;
+		if ch.Name == "Entities" then
+			nd.bindAlmaEntities(ch);
+			return;
+		end;
+		local n = tostring(ch.Name or ""):lower();
+		if n:find("alma", 1, true) then
+			task.defer(nd.handleAlmaDescendant, ch);
 		end;
 	end));
 	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
@@ -3308,7 +3615,53 @@ function nd.startAlmaBypass()
 			end;
 		end));
 	end;
-	nd.scanTree(workspace, nd.handleAlmaDescendant, nil, 120);
+end;
+
+function nd.configureJobs()
+	if nd.jobsConfigured or nd.jobsConfigRunning then
+		return;
+	end;
+	nd.jobsConfigRunning = true;
+	nd.jobsConfigGeneration = (nd.jobsConfigGeneration or 0) + 1;
+	local generation = nd.jobsConfigGeneration;
+	task.spawn(function()
+		local budget = 0;
+		local function active()
+			return nd.enabled and generation == nd.jobsConfigGeneration;
+		end;
+		local function pulse()
+			budget += 1;
+			if budget >= 4 then
+				budget = 0;
+				task.wait();
+			end;
+			return active();
+		end;
+		for _, t in nd.promptTargets do
+			if not active() then nd.jobsConfigRunning = false; return; end;
+			nd.ensurePrompt(t, false);
+			if not pulse() then nd.jobsConfigRunning = false; return; end;
+		end;
+		for _, t in nd.promptFindTargets do
+			if not active() then nd.jobsConfigRunning = false; return; end;
+			nd.ensurePrompt(t, true);
+			if not pulse() then nd.jobsConfigRunning = false; return; end;
+		end;
+		for _, term in nd.espExactTargets do
+			if not active() then nd.jobsConfigRunning = false; return; end;
+			nd.ensureEsp("exact", term);
+			if not pulse() then nd.jobsConfigRunning = false; return; end;
+		end;
+		for _, args in nd.otherCmds do
+			if not active() then nd.jobsConfigRunning = false; return; end;
+			nd.safeCmdRun(args);
+			if not pulse() then nd.jobsConfigRunning = false; return; end;
+		end;
+		if active() then
+			nd.jobsConfigured = true;
+		end;
+		nd.jobsConfigRunning = false;
+	end);
 end;
 
 function nd.plugRun(ctx)
@@ -3320,21 +3673,7 @@ function nd.plugRun(ctx)
 	if nd._env and nd.customFpp then
 		nd._env.fireproximityprompt = nd.customFpp;
 	end;
-	if not nd.jobsConfigured then
-		for _, t in nd.promptTargets do
-			nd.ensurePrompt(t, false);
-		end;
-		for _, t in nd.promptFindTargets do
-			nd.ensurePrompt(t, true);
-		end;
-		for _, term in nd.espExactTargets do
-			nd.ensureEsp("exact", term);
-		end;
-		for _, args in nd.otherCmds do
-			nd.safeCmdRun(args);
-		end;
-		nd.jobsConfigured = true;
-	end;
+	nd.configureJobs();
 	nd.killJam();
 	nd.startDoors();
 	nd.fixScreech();
