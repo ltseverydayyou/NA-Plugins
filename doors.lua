@@ -170,6 +170,7 @@ function nd.addCharConn(conn)
 	table.insert(nd.charConns, conn);
 end;
 function nd.cleanupRuntime()
+	if type(nd.stopArchivesClockLoop) == "function" then pcall(nd.stopArchivesClockLoop); end;
 	if type(nd.restoreEyesMotorSpoof) == "function" then pcall(nd.restoreEyesMotorSpoof); end;
 	if type(nd.stopEyesLookSpoof) == "function" then pcall(nd.stopEyesLookSpoof); end;
 	if type(nd.restoreRansomInvincibility) == "function" then pcall(nd.restoreRansomInvincibility); end;
@@ -183,6 +184,9 @@ function nd.cleanupRuntime()
 	nd.almaSetupGeneration = (nd.almaSetupGeneration or 0) + 1;
 	nd.cameraFxCatchupGeneration = (nd.cameraFxCatchupGeneration or 0) + 1;
 	if nd.figureSolverState then nd.figureSolverState.running = false; end;
+	if nd.resultsUiConns then
+		for key, conn in pairs(nd.resultsUiConns) do nd.disconnectConn(conn); nd.resultsUiConns[key] = nil; end;
+	end;
 	nd.clearCharConns();
 	if type(nd.restoreConns) == "function" then
 		pcall(nd.restoreConns);
@@ -194,7 +198,7 @@ function nd.cleanupRuntime()
 		"dangerCamWatch", "uiHardWatch", "cameraFxWatch", "soundFxWatch", "lightingFxWatch", "muteFxUiWatch",
 		"almaWatch", "almaClientWatch", "almaMiscWatch", "almaEntitiesWatch", "almaRoomsWatch",
 		"doorLatestConn", "doorRoomsConn", "doorRoomDescConn", "doorWorkspaceConn", "doorOpenConn",
-		"figureSolverConn",
+		"figureSolverConn", "archivesRoomsConn", "archivesClockThread",
 		"dangerWorkspaceWatch", "dangerCameraPropWatch", "dangerLatestConn", "dangerActiveConn",
 	} do
 		nd.disconnectConn(nd[key]);
@@ -273,6 +277,8 @@ function nd.cleanupRuntime()
 	nd.soundFxRoot = nil;
 	nd.lightingFxRoot = nil;
 	nd.muteFxUiRoot = nil;
+	nd.resultsUiRoot = nil;
+	nd.resultsUiConns = nil;
 	nd.mainGameCache = nil;
 	nd.ctxCache = nil;
 	nd.ctxCacheModule = nil;
@@ -517,6 +523,38 @@ function nd.ui()
 		return;
 	end;
 	return g:FindFirstChild("MainUI") or g:FindFirstChild("MainUI", true);
+end;
+function nd.isResultsUiVisible()
+	local u = nd.ui();
+	if not u then return false; end;
+	for _, name in { "Statistics", "RippleStatistics", "RippleStatisticsLame", "DeathPanel" } do
+		local panel = u:FindFirstChild(name);
+		if panel and panel:IsA("GuiObject") and panel.Visible then
+			return true;
+		end;
+	end;
+	return false;
+end;
+function nd.bindResultsUiGuard()
+	local u = nd.ui();
+	if not u then return; end;
+	if nd.resultsUiRoot == u and nd.resultsUiConns then return; end;
+	if nd.resultsUiConns then
+		for key, conn in pairs(nd.resultsUiConns) do nd.disconnectConn(conn); nd.resultsUiConns[key] = nil; end;
+	end;
+	nd.resultsUiRoot = u;
+	nd.resultsUiConns = {};
+	for _, name in { "Statistics", "RippleStatistics", "RippleStatisticsLame", "DeathPanel" } do
+		local panel = u:FindFirstChild(name);
+		if panel and panel:IsA("GuiObject") then
+			nd.resultsUiConns[name] = panel:GetPropertyChangedSignal("Visible"):Connect(function()
+				if nd.enabled and not nd.isResultsUiVisible() then
+					task.defer(nd.hardDangerSweep);
+					task.defer(nd.patchCtx);
+				end;
+			end);
+		end;
+	end;
 end;
 function nd.getMods()
 	local u = nd.ui();
@@ -1390,7 +1428,7 @@ function nd.figureSolverCmd(...)
 		return table.concat(code), nil;
 	end;
 	local function trySolve()
-		if state.busy then return; end;
+		if state.busy or nd.isResultsUiVisible() then return; end;
 		local rooms = workspace:FindFirstChild("CurrentRooms");
 		local room = rooms and rooms:FindFirstChild("50");
 		local padlock = room and room:FindFirstChild("Door") and room.Door:FindFirstChild("Padlock");
@@ -1957,6 +1995,9 @@ nd.delPart = {
 nd.dangerRoomSelector = "Sound, ParticleEmitter, Beam, Trail, GuiObject, BlurEffect, ColorCorrectionEffect, #Snare, #Giggle, #Surge, #Egg, #SeekSlop, #Eyes, #Dread, #Screech, #Screech_Noob, #A90, #Ransom, #Lookman, #LookMan, #Look_Man, #Look Man, #Jumpscare, #SeekEye, #GlitchCube, #Hallucination";
 
 function nd.isProgressionBusy()
+	if nd.isResultsUiVisible() then
+		return true;
+	end;
 	local c = nd.gch();
 	if c then
 		if c:GetAttribute("InCutscene") == true
@@ -2933,7 +2974,7 @@ function nd.crouchLoop()
 		return rem and rem:IsA("RemoteEvent") and rem or nil;
 	end;
 	local function sendCrouch()
-		if not nd.enabled or sending then return; end;
+		if not nd.enabled or sending or nd.isResultsUiVisible() then return; end;
 		local r = refreshRemote();
 		if not r then return; end;
 		sending = true;
@@ -3011,7 +3052,7 @@ function nd.scanDangerFamily(root)
 end;
 
 function nd.handleDangerCandidate(d)
-	if not nd.enabled or not d then
+	if not nd.enabled or nd.isResultsUiVisible() or not d then
 		return;
 	end;
 	local n = tostring(d.Name or ""):lower();
@@ -3036,7 +3077,7 @@ function nd.handleDangerCandidate(d)
 end;
 
 function nd.handleDangerNamedCandidate(d)
-	if not nd.enabled or not d then
+	if not nd.enabled or nd.isResultsUiVisible() or not d then
 		return;
 	end;
 	local n = tostring(d.Name or ""):lower();
@@ -3060,7 +3101,7 @@ function nd.handleDangerNamedCandidate(d)
 end;
 
 function nd.hardDangerOne(d)
-	if not d or nd.isFigureInst(d) then
+	if nd.isResultsUiVisible() or not d or nd.isFigureInst(d) then
 		return;
 	end;
 	local n = tostring(d.Name or ""):lower();
@@ -3086,7 +3127,7 @@ function nd.disconnectDangerRoom(room)
 end;
 
 function nd.scanDangerRoom(room)
-	if not (room and room.Parent) then return; end;
+	if nd.isResultsUiVisible() or not (room and room.Parent) then return; end;
 	nd.dangerRoomSeen = nd.dangerRoomSeen or setmetatable({}, { __mode = "k" });
 	nd.dangerRoomConns = nd.dangerRoomConns or setmetatable({}, { __mode = "k" });
 	if nd.dangerActiveRoom == room and nd.dangerActiveConn and nd.dangerActiveConn.Connected then return; end;
@@ -3187,6 +3228,7 @@ function nd.watchDangerRoot(root, key)
 end;
 
 function nd.hardDangerSweep()
+	if nd.isResultsUiVisible() then return; end;
 	nd.watchDangerRoot(workspace:FindFirstChild("CurrentRooms"), "dangerRoomsWatch");
 	nd.watchDangerRoot(workspace:FindFirstChild("Entities"), "dangerEntWatch");
 	nd.watchDangerRoot(workspace.CurrentCamera, "dangerCamWatch");
@@ -3310,9 +3352,74 @@ function nd.startAlmaBypass()
 	end);
 end;
 
+nd.archivesClockInterval = 0.25;
+nd.archivesClockState = nd.archivesClockState or {};
+function nd.stopArchivesClockLoop()
+	local state = nd.archivesClockState;
+	if state then state.running = false; end;
+	nd.disconnectConn(nd.archivesRoomsConn);
+	nd.archivesRoomsConn = nil;
+	for room, conn in pairs(nd.archivesRoomConns or {}) do
+		nd.disconnectConn(conn);
+		nd.archivesRoomConns[room] = nil;
+	end;
+	nd.archivesRoomConns = nil;
+	nd.archivesClockThread = nil;
+	nd.archivesClockState = {};
+end;
+function nd.startArchivesClockLoop()
+	if nd.archivesClockState and nd.archivesClockState.running then return true; end;
+	nd.stopArchivesClockLoop();
+	local state = { running = true, remotes = {}, roomConns = {} };
+	nd.archivesClockState = state;
+	nd.archivesRoomConns = state.roomConns;
+	local function isArchives()
+		local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+		local floor = gd and gd:FindFirstChild("Floor");
+		return floor and tostring(floor.Value):lower() == "archives";
+	end;
+	local function trackRoom(room)
+		if not (state.running and room and room.Parent) then return; end;
+		local assets = room:FindFirstChild("Assets");
+		local clock = assets and assets:FindFirstChild("ArchivesClock");
+		local remote = clock and clock:FindFirstChild("LookedAtRemote");
+		if remote and remote:IsA("RemoteEvent") then state.remotes[remote] = true; end;
+	end;
+	local function bindRoom(room)
+		if not room or state.roomConns[room] then return; end;
+		trackRoom(room);
+		state.roomConns[room] = room.DescendantAdded:Connect(function(d)
+			if d.Name == "Assets" or d.Name == "ArchivesClock" or d.Name == "LookedAtRemote" then
+				task.defer(trackRoom, room);
+			end;
+		end);
+	end;
+	local rooms = workspace:FindFirstChild("CurrentRooms");
+	if rooms then
+		for _, room in rooms:GetChildren() do bindRoom(room); end;
+		nd.replaceConn("archivesRoomsConn", rooms.ChildAdded:Connect(bindRoom));
+	end;
+	nd.archivesClockThread = task.spawn(function()
+		while state.running and nd.enabled do
+			task.wait(nd.archivesClockInterval);
+			if isArchives() and not nd.isResultsUiVisible() then
+				for remote in pairs(state.remotes) do
+					if remote and remote.Parent then
+						pcall(remote.FireServer, remote);
+					else
+						state.remotes[remote] = nil;
+					end;
+				end;
+			end;
+		end;
+	end);
+	return true;
+end;
+
 nd.doorSpeedMax = 60;
 nd.doorSpeedInterval = 0.1;
 nd.doorSpeedBindName = "NA_DoorsSpeedOffset";
+nd.doorSpeedExternalTeleportDistance = 4;
 
 function nd.getDoorSpeedHumanoid()
 	local c = nd.gch();
@@ -3325,6 +3432,8 @@ end;
 function nd.stopDoorSpeed(silent)
 	local localCFrame = nd.doorSpeedLocalCFrame;
 	nd.doorSpeedActive = false;
+	nd.doorSpeedGeneration = (nd.doorSpeedGeneration or 0) + 1;
+	nd.doorSpeedThread = nil;
 	nd.disconnectConn(nd.doorSpeedHeartbeat);
 	nd.doorSpeedHeartbeat = nil;
 	if nd.rs and nd.rs.UnbindFromRenderStep then
@@ -3350,10 +3459,44 @@ function nd.stopDoorSpeed(silent)
 	nd.doorSpeedLocalCFrame = nil;
 	nd.doorSpeedServerCFrame = nil;
 	nd.doorSpeedLastBurst = nil;
+	nd.doorSpeedLastWriteCFrame = nil;
 	nd.doorSpeedValue = nil;
 	if not silent and nd.cmdCtx and type(nd.cmdCtx.notify) == "function" then
 		nd.cmdCtx:notify("DOORS speed disabled", 3);
 	end;
+end;
+
+function nd.doorSpeedCFrameNear(a, b, distance)
+	return typeof(a) == "CFrame" and typeof(b) == "CFrame"
+		and (a.Position - b.Position).Magnitude <= (distance or 0.05);
+end;
+
+function nd.adoptDoorSpeedExternalCFrame(currentRoot, observed)
+	if not currentRoot or typeof(observed) ~= "CFrame" then
+		return false;
+	end;
+	local localCFrame = nd.doorSpeedLocalCFrame;
+	if typeof(localCFrame) ~= "CFrame" then
+		nd.doorSpeedLocalCFrame = observed;
+		nd.doorSpeedServerCFrame = observed;
+		nd.doorSpeedLastBurst = os.clock();
+		return true;
+	end;
+	-- A server-track write is expected to be behind the local visual track. Do
+	-- not mistake that intentional offset for a game/client teleport.
+	if nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
+		return false;
+	end;
+	if (observed.Position - localCFrame.Position).Magnitude < (nd.doorSpeedExternalTeleportDistance or 4) then
+		return false;
+	end;
+	-- Adopt clear external teleports into both tracks so RenderStep does not
+	-- immediately snap PivotTo/CFrame/Position changes back to stale data.
+	nd.doorSpeedLocalCFrame = observed;
+	nd.doorSpeedServerCFrame = observed;
+	nd.doorSpeedLastBurst = os.clock();
+	nd.doorSpeedLastWriteCFrame = observed;
+	return true;
 end;
 
 function nd.startDoorSpeed(value)
@@ -3380,19 +3523,23 @@ function nd.startDoorSpeed(value)
 
 	nd.doorSpeedValue = speed;
 	nd.doorSpeedActive = true;
-
+	nd.doorSpeedGeneration = (nd.doorSpeedGeneration or 0) + 1;
+	nd.doorSpeedThread = nil;
 	nd.disconnectConn(nd.doorSpeedHeartbeat);
+	if nd.rs and nd.rs.BindToRenderStep then
+		pcall(function()
+			nd.rs:UnbindFromRenderStep(nd.doorSpeedBindName);
+		end);
+	end;
 	nd.doorSpeedHeartbeat = nd.rs.Heartbeat:Connect(function()
 		if not nd.doorSpeedActive then
 			return;
 		end;
-
 		local currentRoot = nd.getRoot();
 		local currentHum = nd.getDoorSpeedHumanoid();
 		if not (currentRoot and currentHum) then
 			return;
 		end;
-
 		if nd.doorSpeedRoot ~= currentRoot then
 			nd.doorSpeedRoot = currentRoot;
 			nd.doorSpeedHumanoid = currentHum;
@@ -3401,40 +3548,43 @@ function nd.startDoorSpeed(value)
 			nd.doorSpeedServerCFrame = currentRoot.CFrame;
 			nd.doorSpeedLastBurst = os.clock();
 		end;
-
 		currentHum.WalkSpeed = nd.doorSpeedValue;
-		local baseCFrame = currentRoot.CFrame;
-		nd.doorSpeedLocalCFrame = baseCFrame;
-
+		local observed = currentRoot.CFrame;
+		if not nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
+			nd.adoptDoorSpeedExternalCFrame(currentRoot, observed);
+		end;
+		if not nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
+			nd.doorSpeedLocalCFrame = observed;
+		end;
 		local now = os.clock();
-		if now - (nd.doorSpeedLastBurst or 0) >= nd.doorSpeedInterval then
-			nd.doorSpeedServerCFrame = baseCFrame;
+		local interval = math.max(0.1, tonumber(nd.doorSpeedInterval) or 0.1);
+		if now - (nd.doorSpeedLastBurst or 0) >= interval then
+			nd.doorSpeedServerCFrame = nd.doorSpeedLocalCFrame or observed;
 			nd.doorSpeedLastBurst = now;
 		end;
-
-		local serverCFrame = nd.doorSpeedServerCFrame;
-		if typeof(serverCFrame) == "CFrame" then
-			currentRoot.CFrame = serverCFrame;
-		end;
-	end);
-
-	if nd.rs and nd.rs.UnbindFromRenderStep then
+		local serverCFrame = nd.doorSpeedServerCFrame or observed;
+		nd.doorSpeedLastWriteCFrame = serverCFrame;
 		pcall(function()
-			nd.rs:UnbindFromRenderStep(nd.doorSpeedBindName);
+			currentRoot.CFrame = serverCFrame;
 		end);
-	end;
+	end);
 	nd.rs:BindToRenderStep(nd.doorSpeedBindName, Enum.RenderPriority.First.Value, function()
 		if not nd.doorSpeedActive then
 			return;
 		end;
-		local current = nd.doorSpeedLocalCFrame;
-		if typeof(current) ~= "CFrame" then
+		local currentRoot = nd.getRoot();
+		if not currentRoot then
 			return;
 		end;
-		local currentRoot = nd.getRoot();
-		if currentRoot then
-			currentRoot.CFrame = current;
+		local observed = currentRoot.CFrame;
+		if not nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
+			nd.adoptDoorSpeedExternalCFrame(currentRoot, observed);
 		end;
+		local localCFrame = nd.doorSpeedLocalCFrame or observed;
+		nd.doorSpeedLocalCFrame = localCFrame;
+		pcall(function()
+			currentRoot.CFrame = localCFrame;
+		end);
 	end);
 
 	hum.WalkSpeed = speed;
@@ -3578,6 +3728,7 @@ function nd.muteClientEntityVisual(inst)
 end;
 
 function nd.clearClientEntityVisuals()
+	if nd.isResultsUiVisible() then return; end;
 	local cam = workspace.CurrentCamera;
 	if cam then
 		for _, ch in ipairs(cam:GetChildren()) do
@@ -3780,6 +3931,7 @@ function nd.plugRun(ctx)
 	end;
 	nd.enabled = true;
 	nd.loaded = true;
+	nd.bindResultsUiGuard();
 	-- PERFTEST Eyes startup disabled;
 	task.defer(nd.enableRansomInvincibility);
 	task.defer(nd.installClientEntityBypasses);
@@ -3811,6 +3963,8 @@ function nd.plugRun(ctx)
 	nd.wireMinis();
 	nd.hardBypasses();
 	nd.hookLadder();
+	nd.figureSolverCmd();
+	nd.startArchivesClockLoop();
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
 	local a90Rem = remf and (remf:FindFirstChild("A90") or remf:FindFirstChild("Ransom"));
 	if a90Rem and (not nd.a90Hook) and (not nd.a90Attr) then
