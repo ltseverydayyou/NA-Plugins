@@ -237,6 +237,14 @@ function nd.cleanupRuntime()
 			nd.doorVisualRoomConns[room] = nil;
 		end;
 	end;
+	if nd.doorVisualOwnerConns then
+		for owner, conn in pairs(nd.doorVisualOwnerConns) do
+			nd.disconnectConn(conn);
+			nd.doorVisualOwnerConns[owner] = nil;
+		end;
+	end;
+	nd.doorVisualOwnerAlpha = setmetatable({}, { __mode = "k" });
+	nd.doorVisualGeneration = (nd.doorVisualGeneration or 0) + 1;
 	if screechFlag and screechFlag.Parent and screechFlag:IsA("BoolValue") and type(screechOriginal) == "boolean" then
 		pcall(function()
 			screechFlag.Value = screechOriginal;
@@ -1465,15 +1473,15 @@ function nd.moduleFallback(ms, name)
 		if rn == name or pn == name then nd.muteSignal(r.OnClientEvent); end;
 	end;
 	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
-	if remf then nd.scanTree(remf, matchRemote, nil, 100); end;
+	if remf then nd.queryEach(remf, "RemoteEvent", matchRemote); end;
 	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
 	local cr = fr and fr:FindFirstChild("ClientRemote");
-	if cr then nd.scanTree(cr, matchRemote, nil, 100); end;
-	nd.scanTree(ms, function(d)
+	if cr then nd.queryEach(cr, "RemoteEvent", matchRemote); end;
+	nd.queryEach(ms, "Sound, SoundEffect, ParticleEmitter, Beam, Trail, GuiObject", function(d)
 		if d:IsA("Sound") or d:IsA("SoundEffect") then nd.silenceSound(d);
 		elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then nd.trySet(d, "Enabled", false);
 		elseif d:IsA("GuiObject") then nd.trySet(d, "Visible", false); end;
-	end, nil, 60);
+	end);
 end;
 function nd.scanModRoot(root)
 	if not root then return; end;
@@ -1841,6 +1849,7 @@ nd.delPart = {
 	"sanity",
 	"coldbox",
 };
+nd.dangerRoomSelector = "Sound, ParticleEmitter, Beam, Trail, GuiObject, BlurEffect, ColorCorrectionEffect, #Snare, #Giggle, #Surge, #Egg, #SeekSlop, #Eyes, #Dread, #Screech, #Screech_Noob, #A90, #Ransom, #Lookman, #LookMan, #Look_Man, #Look Man, #Jumpscare, #SeekEye, #GlitchCube, #Hallucination";
 
 function nd.isProgressionBusy()
 	local c = nd.gch();
@@ -2593,6 +2602,9 @@ end;
 
 nd.doorTransparencyOriginal = nd.doorTransparencyOriginal or setmetatable({}, { __mode = "k" });
 nd.doorVisualRoomConns = nd.doorVisualRoomConns or setmetatable({}, { __mode = "k" });
+nd.doorVisualOwnerConns = nd.doorVisualOwnerConns or setmetatable({}, { __mode = "k" });
+nd.doorVisualOwnerAlpha = nd.doorVisualOwnerAlpha or setmetatable({}, { __mode = "k" });
+nd.doorVisualGeneration = nd.doorVisualGeneration or 0;
 function nd.isDoorVisualName(name)
 	local n = tostring(name or ""):lower();
 	return n:find("door", 1, true) ~= nil and n:find("doorframe", 1, true) == nil and n:find("door_frame", 1, true) == nil;
@@ -2622,14 +2634,30 @@ function nd.setDoorPartTransparency(part, alpha)
 	part.LocalTransparencyModifier = alpha;
 end;
 function nd.styleDoorOwner(owner)
-	if not owner then return; end;
+	if not (owner and owner.Parent) then return; end;
 	local alpha = nd.getDoorVisualAlpha(owner);
-	if owner:IsA("BasePart") then
-		nd.setDoorPartTransparency(owner, alpha);
-		return;
+	local oldAlpha = nd.doorVisualOwnerAlpha[owner];
+	local needsScan = oldAlpha ~= alpha;
+	nd.doorVisualOwnerAlpha[owner] = alpha;
+	if needsScan then
+		if owner:IsA("BasePart") then
+			nd.setDoorPartTransparency(owner, alpha);
+		else
+			nd.queryEach(owner, "BasePart", function(part)
+				nd.setDoorPartTransparency(part, alpha);
+			end);
+		end;
 	end;
-	nd.queryEach(owner, "BasePart", function(part)
-		nd.setDoorPartTransparency(part, alpha);
+	local conn = nd.doorVisualOwnerConns[owner];
+	if conn and conn.Connected then return; end;
+	nd.disconnectConn(conn);
+	nd.doorVisualOwnerConns[owner] = owner.DescendantAdded:Connect(function(inst)
+		if not nd.enabled or not inst.Parent then return; end;
+		if inst:IsA("BasePart") then
+			nd.setDoorPartTransparency(inst, nd.doorVisualOwnerAlpha[owner] or alpha);
+		elseif inst.Name == "ClientOpen" and inst:IsA("RemoteEvent") then
+			task.defer(nd.styleDoorOwner, owner);
+		end;
 	end);
 end;
 function nd.styleDoorCandidate(inst)
@@ -2657,7 +2685,6 @@ function nd.bindDoorVisualRoom(room)
 		if not nd.enabled or not child or not child.Parent then return; end;
 		if nd.isDoorVisualName(child.Name) then
 			task.defer(nd.styleDoorOwner,child);
-			task.delay(0.12,function() if nd.enabled and child.Parent then nd.styleDoorOwner(child); end; end);
 		end;
 	end;
 	task.defer(function() if not nd.enabled or not room.Parent then return; end; for _,child in room:GetChildren() do styleTop(child); end; end);
@@ -2668,7 +2695,15 @@ function nd.startDoorVisuals(rooms)
 	if not rooms then return; end;
 	for room,conn in pairs(nd.doorVisualRoomConns or {}) do if not room.Parent then nd.disconnectConn(conn); nd.doorVisualRoomConns[room]=nil; end; end;
 	local list = rooms:GetChildren();
-	task.spawn(function() for i,room in ipairs(list) do if not nd.enabled then return; end; nd.bindDoorVisualRoom(room); if i % 3 == 0 then task.wait(); end; end; end);
+	nd.doorVisualGeneration += 1;
+	local generation = nd.doorVisualGeneration;
+	task.spawn(function()
+		for _,room in ipairs(list) do
+			if not nd.enabled or generation ~= nd.doorVisualGeneration then return; end;
+			nd.bindDoorVisualRoom(room);
+			task.wait();
+		end;
+	end);
 end;
 function nd.restoreDoorTransparency()
 	local map = nd.doorTransparencyOriginal;
@@ -2970,7 +3005,11 @@ function nd.scanDangerRoom(room)
 	nd.dangerRoomConns[room] = conn;
 	nd.dangerActiveConn = conn;
 	nd.dangerRoomSeen[room] = true;
-	nd.scanTree(room,function(d) if relevant(d) then nd.handleDangerCandidate(d); end; end,nil,24);
+	nd.queryEach(room, nd.dangerRoomSelector, function(d)
+		if relevant(d) then
+			nd.handleDangerCandidate(d);
+		end;
+	end);
 end;
 function nd.watchDangerRoot(root, key)
 	if not root then
