@@ -182,6 +182,7 @@ function nd.cleanupRuntime()
 	nd.fxCatchupGeneration = (nd.fxCatchupGeneration or 0) + 1;
 	nd.almaSetupGeneration = (nd.almaSetupGeneration or 0) + 1;
 	nd.cameraFxCatchupGeneration = (nd.cameraFxCatchupGeneration or 0) + 1;
+	if nd.figureSolverState then nd.figureSolverState.running = false; end;
 	nd.clearCharConns();
 	if type(nd.restoreConns) == "function" then
 		pcall(nd.restoreConns);
@@ -193,6 +194,7 @@ function nd.cleanupRuntime()
 		"dangerCamWatch", "uiHardWatch", "cameraFxWatch", "soundFxWatch", "lightingFxWatch", "muteFxUiWatch",
 		"almaWatch", "almaClientWatch", "almaMiscWatch", "almaEntitiesWatch", "almaRoomsWatch",
 		"doorLatestConn", "doorRoomsConn", "doorRoomDescConn", "doorWorkspaceConn", "doorOpenConn",
+		"figureSolverConn",
 		"dangerWorkspaceWatch", "dangerCameraPropWatch", "dangerLatestConn", "dangerActiveConn",
 	} do
 		nd.disconnectConn(nd[key]);
@@ -1322,6 +1324,109 @@ function nd.doorDelayCmd(...)
 	end;
 	nd.doorDelay = math.max(0.01, n);
 	return "ClientOpen delay: " .. tostring(nd.doorDelay) .. "s";
+end;
+
+nd.figureSolverState = nd.figureSolverState or {};
+function nd.figureSolverCmd(...)
+	local vals = {...};
+	local action = tostring(vals[1] or "run"):lower();
+	if action == "off" or action == "stop" or action == "disable" then
+		if nd.figureSolverState then nd.figureSolverState.running = false; end;
+		nd.figureSolverState = {};
+		return "Figures solver stopped";
+	end;
+	if nd.figureSolverState and nd.figureSolverState.running then
+		return "Figures solver already running";
+	end;
+
+	local state = nd.figureSolverState;
+	state.lastRoom = nil;
+	state.lastCode = nil;
+	state.lastAttempt = 0;
+	state.busy = false;
+	state.running = true;
+	local function slotIndex(image)
+		if not image or not image:IsA("ImageLabel") then return nil; end;
+		local offset = image.ImageRectOffset;
+		local index = math.floor((offset.X or 0) / 50 + 0.5);
+		if index >= 0 and index <= 7 then return index; end;
+		return nil;
+	end;
+	local function readCode()
+		local player = nd.lp();
+		local pg = player and player:FindFirstChildOfClass("PlayerGui");
+		local hintGui = pg and pg:FindFirstChild("PermUI");
+		local hints = hintGui and hintGui:FindFirstChild("Hints");
+		local map = {};
+		if hints then
+			for _, icon in hints:GetChildren() do
+				if icon.Name == "Icon" and icon:IsA("GuiObject") then
+					local index = slotIndex(icon);
+					local label = icon:FindFirstChild("TextLabel");
+					local digit = label and tonumber(label.Text);
+					if index ~= nil and digit and digit >= 0 and digit <= 9 then
+						map[index] = tostring(math.floor(digit));
+					end;
+				end;
+			end;
+		end;
+		local character = player and player.Character;
+		local paper = character and character:FindFirstChild("LibraryHintPaper");
+		if not paper then
+			local workspacePlayer = workspace:FindFirstChild(player and player.Name or "");
+			paper = workspacePlayer and workspacePlayer:FindFirstChild("LibraryHintPaper");
+		end;
+		local ui = paper and paper:FindFirstChild("UI");
+		if not ui then return nil, "hint paper not equipped"; end;
+		local code = {};
+		for i = 1, 5 do
+			local image = ui:FindFirstChild(tostring(i));
+			local index = slotIndex(image);
+			if index == nil or map[index] == nil then
+				return nil, "waiting for all five hint codes";
+			end;
+			code[i] = map[index];
+		end;
+		return table.concat(code), nil;
+	end;
+	local function trySolve()
+		if state.busy then return; end;
+		local rooms = workspace:FindFirstChild("CurrentRooms");
+		local room = rooms and rooms:FindFirstChild("50");
+		local padlock = room and room:FindFirstChild("Door") and room.Door:FindFirstChild("Padlock");
+		local locked = padlock and padlock:FindFirstChild("Padlocked");
+		if not (room and padlock and locked and locked.Value == true) then return; end;
+		local code = readCode();
+		if not code then return; end;
+		if code == state.lastCode and state.lastRoom == room and tick() - (state.lastAttempt or 0) < 5 then return; end;
+		local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder");
+		local pl = remotes and remotes:FindFirstChild("PL");
+		if not (pl and pl:IsA("RemoteEvent")) then return; end;
+		state.busy = true;
+		state.lastAttempt = tick();
+		state.lastRoom = room;
+		state.lastCode = code;
+		pcall(function()
+			local prompt = padlock:FindFirstChild("ActivateEventPrompt");
+			local player = nd.lp();
+			local pg = player and player:FindFirstChildOfClass("PlayerGui");
+			local backout = pg and pg:FindFirstChild("MainUI") and pg.MainUI:FindFirstChild("MinigameBackout");
+			if prompt and prompt.Enabled and not (backout and backout.Visible) and type(fireproximityprompt) == "function" then
+				fireproximityprompt(prompt, 1, true);
+				task.wait(0.2);
+			end;
+			pl:FireServer(code);
+		end);
+		state.busy = false;
+	end;
+	task.spawn(function()
+		while state.running and nd.enabled do
+			task.wait(0.5);
+			if state.running and nd.enabled then trySolve(); end;
+		end;
+	end);
+	trySolve();
+	return "Figures solver running";
 end;
 
 nd.lookDownHold = nd.lookDownHold or 0;
@@ -3752,6 +3857,17 @@ plugin:cmd("doordelay", "clientopendelay")
 	:run(function(ctx, ...)
 		nd.cmdCtx = ctx;
 		local msg = nd.doorDelayCmd(...);
+		if msg ~= nil then
+			ctx:notify(tostring(msg), 3);
+		end;
+	end);
+
+plugin:cmd("figuresolver", "figurecode", "librarycode")
+	:args("[run|off]")
+	:info("Automatically solves the Figures library padlock from the paper and hint overlay")
+	:run(function(ctx, ...)
+		nd.cmdCtx = ctx;
+		local msg = nd.figureSolverCmd(...);
 		if msg ~= nil then
 			ctx:notify(tostring(msg), 3);
 		end;
