@@ -198,7 +198,7 @@ function nd.cleanupRuntime()
 		"dangerCamWatch", "uiHardWatch", "cameraFxWatch", "soundFxWatch", "lightingFxWatch", "muteFxUiWatch",
 		"almaWatch", "almaClientWatch", "almaMiscWatch", "almaEntitiesWatch", "almaRoomsWatch",
 		"doorLatestConn", "doorRoomsConn", "doorRoomDescConn", "doorWorkspaceConn", "doorOpenConn",
-		"figureSolverConn", "archivesRoomsConn", "archivesClockThread",
+		"figureSolverConn", "archivesRoomsConn", "archivesFloorConn", "archivesClockThread",
 		"dangerWorkspaceWatch", "dangerCameraPropWatch", "dangerLatestConn", "dangerActiveConn",
 	} do
 		nd.disconnectConn(nd[key]);
@@ -208,6 +208,12 @@ function nd.cleanupRuntime()
 		for room, conn in pairs(nd.dangerRoomConns) do
 			nd.disconnectConn(conn);
 			nd.dangerRoomConns[room] = nil;
+		end;
+	end;
+	if nd.dangerRoomAssetConns then
+		for room, conn in pairs(nd.dangerRoomAssetConns) do
+			nd.disconnectConn(conn);
+			nd.dangerRoomAssetConns[room] = nil;
 		end;
 	end;
 	if nd.dangerFamilyConns then
@@ -266,7 +272,9 @@ function nd.cleanupRuntime()
 	nd.mutedUiRoots = setmetatable({}, { __mode = "k" });
 	nd.soundMuteRoots = setmetatable({}, { __mode = "k" });
 	nd.promptScannedRoots = setmetatable({}, { __mode = "k" });
+	nd.mutedSignalAt = setmetatable({}, { __mode = "k" });
 	nd.dangerRoomConns = setmetatable({}, { __mode = "k" });
+	nd.dangerRoomAssetConns = setmetatable({}, { __mode = "k" });
 	nd.dangerRoomSeen = setmetatable({}, { __mode = "k" });
 	nd.dangerFamilySeen = setmetatable({}, { __mode = "k" });
 	nd.dangerFamilyConns = setmetatable({}, { __mode = "k" });
@@ -807,7 +815,7 @@ function nd.scanTree(root, callback, seen, batchSize)
 		seen[root] = true;
 	end;
 	local generation = nd.scanGeneration or 0;
-	local batch = math.max(20, tonumber(batchSize) or 100);
+	local batch = math.clamp(tonumber(batchSize) or 24, 8, 64);
 	task.spawn(function()
 		local stack = { root };
 		local processed = 0;
@@ -1615,16 +1623,18 @@ function nd.moduleFallback(ms, name)
 		local pn = r.Parent and tostring(r.Parent.Name or ""):lower() or "";
 		if rn == name or pn == name then nd.muteSignal(r.OnClientEvent); end;
 	end;
-	local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
-	if remf then nd.queryEach(remf, "RemoteEvent", matchRemote); end;
-	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
-	local cr = fr and fr:FindFirstChild("ClientRemote");
-	if cr then nd.queryEach(cr, "RemoteEvent", matchRemote); end;
-	nd.queryEach(ms, "Sound, SoundEffect, ParticleEmitter, Beam, Trail, GuiObject", function(d)
+	if nd.blockRemoteNames and nd.blockRemoteNames[name] then
+		local remf = __lt.cm("ReplicatedStorage", "FindFirstChild", "RemotesFolder");
+		if remf then nd.queryEach(remf, "RemoteEvent", matchRemote); end;
+		local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
+		local cr = fr and fr:FindFirstChild("ClientRemote");
+		if cr then nd.queryEach(cr, "RemoteEvent", matchRemote); end;
+	end;
+	nd.scanTree(ms, function(d)
 		if d:IsA("Sound") or d:IsA("SoundEffect") then nd.silenceSound(d);
 		elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then nd.trySet(d, "Enabled", false);
 		elseif d:IsA("GuiObject") then nd.trySet(d, "Visible", false); end;
-	end);
+	end, nil, 12);
 end;
 function nd.scanModRoot(root)
 	if not root then return; end;
@@ -1730,10 +1740,17 @@ function nd.disableConnObj(c)
 		nd.disabledConns[c] = true;
 	end;
 end;
+nd.mutedSignalAt = nd.mutedSignalAt or setmetatable({}, { __mode = "k" });
 function nd.muteSignal(sig)
-	if typeof(getconnections) ~= "function" then
+	if typeof(getconnections) ~= "function" or not sig then
 		return;
 	end;
+	local now = os.clock();
+	local last = nd.mutedSignalAt[sig];
+	if type(last) == "number" and now - last < 0.75 then
+		return;
+	end;
+	nd.mutedSignalAt[sig] = now;
 	local ok, list = pcall(getconnections, sig);
 	if not (ok and type(list) == "table") then
 		return;
@@ -1854,17 +1871,14 @@ function nd.clearCameraFx()
 	local cam = workspace.CurrentCamera;
 	local lighting = game.Lighting;
 	local main = nd.ss and nd.ss:FindFirstChild("Main");
-	local cameraCatchup = {};
-	local lightingCatchup = {};
-	local soundCatchup = {};
 
 	if cam and (nd.cameraFxRoot ~= cam or not (nd.cameraFxWatch and nd.cameraFxWatch.Connected)) then
 		nd.disconnectConn(nd.cameraFxWatch);
 		nd.cameraFxRoot = cam;
-		cameraCatchup = nd.queryDesc(cam, "GuiObject, ParticleEmitter, Beam, Trail, BlurEffect, ColorCorrectionEffect, Sound");
 		nd.replaceConn("cameraFxWatch", cam.DescendantAdded:Connect(function(d)
 			nd.clearCameraOne(d);
 		end));
+		nd.scanTree(cam, nd.clearCameraOne, nil, 12);
 	end;
 
 	if nd.lightingFxRoot ~= lighting or not (nd.lightingFxWatch and nd.lightingFxWatch.Connected) then
@@ -1873,7 +1887,7 @@ function nd.clearCameraFx()
 		for _, name in { "Sanity", "Dread", "OxygenCC", "OxygenBlur" } do
 			local hit = lighting:FindFirstChild(name);
 			if hit then
-				lightingCatchup[#lightingCatchup + 1] = hit;
+				nd.clearLightingOne(hit);
 			end;
 		end;
 		nd.replaceConn("lightingFxWatch", lighting.ChildAdded:Connect(function(d)
@@ -1884,45 +1898,11 @@ function nd.clearCameraFx()
 	if main and (nd.soundFxRoot ~= main or not (nd.soundFxWatch and nd.soundFxWatch.Connected)) then
 		nd.disconnectConn(nd.soundFxWatch);
 		nd.soundFxRoot = main;
-		soundCatchup = nd.queryDesc(main, "SoundEffect");
 		nd.replaceConn("soundFxWatch", main.DescendantAdded:Connect(function(d)
 			nd.clearSoundFxOne(d);
 		end));
+		nd.scanTree(main, nd.clearSoundFxOne, nil, 12);
 	end;
-
-	if #cameraCatchup == 0 and #lightingCatchup == 0 and #soundCatchup == 0 then
-		return;
-	end;
-	nd.cameraFxCatchupGeneration = (nd.cameraFxCatchupGeneration or 0) + 1;
-	local generation = nd.cameraFxCatchupGeneration;
-	task.defer(function()
-		local ci, li, si = 1, 1, 1;
-		while ci <= #cameraCatchup or li <= #lightingCatchup or si <= #soundCatchup do
-			if not nd.enabled or generation ~= nd.cameraFxCatchupGeneration then
-				return;
-			end;
-			for _ = 1, 2 do
-				local d = cameraCatchup[ci];
-				if not d then break; end;
-				nd.clearCameraOne(d);
-				ci += 1;
-			end;
-			local ld = lightingCatchup[li];
-			if ld then
-				nd.clearLightingOne(ld);
-				li += 1;
-			end;
-			for _ = 1, 2 do
-				local d = soundCatchup[si];
-				if not d then break; end;
-				nd.clearSoundFxOne(d);
-				si += 1;
-			end;
-			if ci <= #cameraCatchup or li <= #lightingCatchup or si <= #soundCatchup then
-				task.wait();
-			end;
-		end;
-	end);
 end;
 
 function nd.hookGcFuncs()
@@ -1945,6 +1925,10 @@ nd.otherCmds = {
 	{ "strengthen", "inf" },
 	{ "ipp" },
 	{ "lenpp" },
+	{ "lfov", "120" },
+	{ "ln" },
+	{ "lne" },
+	{ "gamma", "0" },
 };
 nd.noModNames = {
 	a90 = true,
@@ -2403,14 +2387,7 @@ function nd.hookScreech()
 	if not (rem and rem:IsA("RemoteEvent")) then
 		return;
 	end;
-	if typeof(getconnections) == "function" then
-		local ok, list = pcall(getconnections, rem.OnClientEvent);
-		if ok and type(list) == "table" then
-			for _, conn in list do
-				nd.disableConnObj(conn);
-			end;
-		end;
-	end;
+	nd.muteSignal(rem.OnClientEvent);
 	nd.replaceConn("screechBypassConn", rem.OnClientEvent:Connect(function(...)
 		if not nd.enabled then
 			return;
@@ -3043,12 +3020,12 @@ function nd.scanDangerFamily(root)
 	nd.dangerFamilySeen[root] = true;
 	nd.disconnectConn(existing);
 	nd.hardDangerLeaf(root);
-	nd.queryEach(root, "BasePart, Sound, ParticleEmitter, Beam, Trail, GuiObject, BlurEffect, ColorCorrectionEffect", nd.hardDangerLeaf);
 	nd.dangerFamilyConns[root] = root.DescendantAdded:Connect(function(d)
 		if nd.enabled then
 			nd.hardDangerLeaf(d);
 		end;
 	end);
+	nd.scanTree(root, nd.hardDangerLeaf, nil, 12);
 end;
 
 function nd.handleDangerCandidate(d)
@@ -3118,42 +3095,87 @@ function nd.hardDangerOne(d)
 end;
 
 function nd.disconnectDangerRoom(room)
-	if not nd.dangerRoomConns then
+	if not room then
 		return;
 	end;
-	local conn = nd.dangerRoomConns[room];
-	nd.disconnectConn(conn);
-	nd.dangerRoomConns[room] = nil;
+	if nd.dangerRoomConns then
+		nd.disconnectConn(nd.dangerRoomConns[room]);
+		nd.dangerRoomConns[room] = nil;
+	end;
+	if nd.dangerRoomAssetConns then
+		nd.disconnectConn(nd.dangerRoomAssetConns[room]);
+		nd.dangerRoomAssetConns[room] = nil;
+	end;
 end;
 
 function nd.scanDangerRoom(room)
 	if nd.isResultsUiVisible() or not (room and room.Parent) then return; end;
 	nd.dangerRoomSeen = nd.dangerRoomSeen or setmetatable({}, { __mode = "k" });
 	nd.dangerRoomConns = nd.dangerRoomConns or setmetatable({}, { __mode = "k" });
+	nd.dangerRoomAssetConns = nd.dangerRoomAssetConns or setmetatable({}, { __mode = "k" });
 	if nd.dangerActiveRoom == room and nd.dangerActiveConn and nd.dangerActiveConn.Connected then return; end;
 	if nd.dangerActiveRoom and nd.dangerActiveRoom ~= room then nd.disconnectDangerRoom(nd.dangerActiveRoom); end;
 	nd.disconnectConn(nd.dangerActiveConn);
 	nd.dangerActiveConn = nil;
 	nd.dangerActiveRoom = room;
+
 	local function relevant(d)
 		if not d then return false; end;
 		local n = tostring(d.Name or ""):lower();
 		if nd.isDangerName(n) then return true; end;
-		if n:find("lookman",1,true) or n:find("look man",1,true) or n:find("look_man",1,true) then return true; end;
+		if n:find("lookman", 1, true) or n:find("look man", 1, true) or n:find("look_man", 1, true) then return true; end;
 		if d:IsA("Sound") then
-			return n:find("oxygen",1,true) ~= nil or n:find("jamming",1,true) ~= nil or n:find("jumpscare",1,true) ~= nil or n:find("screech",1,true) ~= nil or n:find("dread",1,true) ~= nil or n:find("sanity",1,true) ~= nil or n:find("cold",1,true) ~= nil;
+			return n:find("oxygen", 1, true) ~= nil
+				or n:find("jamming", 1, true) ~= nil
+				or n:find("jumpscare", 1, true) ~= nil
+				or n:find("screech", 1, true) ~= nil
+				or n:find("dread", 1, true) ~= nil
+				or n:find("sanity", 1, true) ~= nil
+				or n:find("cold", 1, true) ~= nil;
 		end;
 		return false;
 	end;
-	local conn = room.DescendantAdded:Connect(function(d)
-		if nd.enabled and relevant(d) then task.defer(nd.handleDangerCandidate,d); end;
+
+	local function inspect(d)
+		if nd.enabled and d and d.Parent and relevant(d) then
+			task.defer(nd.handleDangerCandidate, d);
+		end;
+	end;
+
+	local function bindAssets(assets)
+		if not (assets and assets.Parent) then return; end;
+		nd.disconnectConn(nd.dangerRoomAssetConns[room]);
+		nd.dangerRoomAssetConns[room] = assets.ChildAdded:Connect(inspect);
+		local children = assets:GetChildren();
+		task.spawn(function()
+			for i, d in ipairs(children) do
+				if not nd.enabled or nd.dangerActiveRoom ~= room or not room.Parent then return; end;
+				inspect(d);
+				if i % 8 == 0 then task.wait(); end;
+			end;
+		end);
+	end;
+
+	local conn = room.ChildAdded:Connect(function(d)
+		if not nd.enabled then return; end;
+		if d.Name == "Assets" then
+			bindAssets(d);
+		end;
+		inspect(d);
 	end);
 	nd.dangerRoomConns[room] = conn;
 	nd.dangerActiveConn = conn;
 	nd.dangerRoomSeen[room] = true;
-	nd.queryEach(room, nd.dangerRoomSelector, function(d)
-		if relevant(d) then
-			nd.handleDangerCandidate(d);
+
+	local children = room:GetChildren();
+	task.spawn(function()
+		for i, d in ipairs(children) do
+			if not nd.enabled or nd.dangerActiveRoom ~= room or not room.Parent then return; end;
+			if d.Name == "Assets" then
+				bindAssets(d);
+			end;
+			inspect(d);
+			if i % 8 == 0 then task.wait(); end;
 		end;
 	end);
 end;
@@ -3298,9 +3320,14 @@ function nd.startAlmaBypass()
 	end;
 	local entities = workspace:FindFirstChild("Entities");
 	if entities then
-		for _, d in entities:GetChildren() do
-			nd.handleAlmaCandidate(d);
-		end;
+		local existingEntities = entities:GetChildren();
+		task.spawn(function()
+			for _, d in existingEntities do
+				if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
+				nd.handleAlmaCandidate(d);
+				task.wait();
+			end;
+		end);
 		nd.replaceConn("almaEntitiesWatch", entities.ChildAdded:Connect(function(d)
 			if nd.enabled then
 				nd.handleAlmaCandidate(d);
@@ -3337,12 +3364,17 @@ function nd.startAlmaBypass()
 			end;
 		end));
 	end;
-	for _, d in workspace:GetChildren() do
-		local n = tostring(d.Name or ""):lower();
-		if n == "alma" or n == "_despawningalma" or n == "almaaudiocontainer" then
-			nd.handleAlmaCandidate(d);
+	local workspaceChildren = workspace:GetChildren();
+	task.spawn(function()
+		for _, d in workspaceChildren do
+			if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
+			local n = tostring(d.Name or ""):lower();
+			if n == "alma" or n == "_despawningalma" or n == "almaaudiocontainer" then
+				nd.handleAlmaCandidate(d);
+			end;
+			task.wait();
 		end;
-	end;
+	end);
 	task.defer(function()
 		if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
 		nd.killAlmaAudio();
@@ -3359,6 +3391,8 @@ function nd.stopArchivesClockLoop()
 	if state then state.running = false; end;
 	nd.disconnectConn(nd.archivesRoomsConn);
 	nd.archivesRoomsConn = nil;
+	nd.disconnectConn(nd.archivesFloorConn);
+	nd.archivesFloorConn = nil;
 	for room, conn in pairs(nd.archivesRoomConns or {}) do
 		nd.disconnectConn(conn);
 		nd.archivesRoomConns[room] = nil;
@@ -3370,39 +3404,66 @@ end;
 function nd.startArchivesClockLoop()
 	if nd.archivesClockState and nd.archivesClockState.running then return true; end;
 	nd.stopArchivesClockLoop();
-	local state = { running = true, remotes = {}, roomConns = {} };
+
+	local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
+	local floor = gd and gd:FindFirstChild("Floor");
+	local state = { running = true, remotes = {} };
 	nd.archivesClockState = state;
-	nd.archivesRoomConns = state.roomConns;
-	local function isArchives()
-		local gd = __lt.cm("ReplicatedStorage", "FindFirstChild", "GameData");
-		local floor = gd and gd:FindFirstChild("Floor");
-		return floor and tostring(floor.Value):lower() == "archives";
+
+	local function floorIsArchives()
+		return floor and floor.Parent and tostring(floor.Value):lower() == "archives";
 	end;
+
+	if floor then
+		nd.archivesFloorConn = floor:GetPropertyChangedSignal("Value"):Connect(function()
+			if not nd.enabled then return; end;
+			nd.stopArchivesClockLoop();
+			task.defer(nd.startArchivesClockLoop);
+		end);
+	end;
+
+	if not floorIsArchives() then
+		return true;
+	end;
+
 	local function trackRoom(room)
 		if not (state.running and room and room.Parent) then return; end;
 		local assets = room:FindFirstChild("Assets");
 		local clock = assets and assets:FindFirstChild("ArchivesClock");
 		local remote = clock and clock:FindFirstChild("LookedAtRemote");
-		if remote and remote:IsA("RemoteEvent") then state.remotes[remote] = true; end;
+		if remote and remote:IsA("RemoteEvent") then
+			state.remotes[remote] = true;
+		end;
 	end;
-	local function bindRoom(room)
-		if not room or state.roomConns[room] then return; end;
+
+	local function scheduleTrack(room)
+		if not (room and room.Parent) then return; end;
 		trackRoom(room);
-		state.roomConns[room] = room.DescendantAdded:Connect(function(d)
-			if d.Name == "Assets" or d.Name == "ArchivesClock" or d.Name == "LookedAtRemote" then
-				task.defer(trackRoom, room);
-			end;
+		nd.Delay(0.15, function()
+			if state.running then trackRoom(room); end;
+		end);
+		nd.Delay(0.5, function()
+			if state.running then trackRoom(room); end;
 		end);
 	end;
+
 	local rooms = workspace:FindFirstChild("CurrentRooms");
 	if rooms then
-		for _, room in rooms:GetChildren() do bindRoom(room); end;
-		nd.replaceConn("archivesRoomsConn", rooms.ChildAdded:Connect(bindRoom));
+		local existing = rooms:GetChildren();
+		task.spawn(function()
+			for i, room in ipairs(existing) do
+				if not state.running or not nd.enabled then return; end;
+				scheduleTrack(room);
+				if i % 4 == 0 then task.wait(); end;
+			end;
+		end);
+		nd.replaceConn("archivesRoomsConn", rooms.ChildAdded:Connect(scheduleTrack));
 	end;
+
 	nd.archivesClockThread = task.spawn(function()
-		while state.running and nd.enabled do
+		while state.running and nd.enabled and floorIsArchives() do
 			task.wait(nd.archivesClockInterval);
-			if isArchives() and not nd.isResultsUiVisible() then
+			if not nd.isResultsUiVisible() then
 				for remote in pairs(state.remotes) do
 					if remote and remote.Parent then
 						pcall(remote.FireServer, remote);
@@ -3734,7 +3795,7 @@ function nd.clearClientEntityVisuals()
 		for _, ch in ipairs(cam:GetChildren()) do
 			nd.muteClientEntityVisual(ch);
 			if ch.Name == "Glitch" or ch.Name == "Shade" or ch.Name == "Halt" or ch.Name == "Ransom" or ch.Name == "A90" then
-				nd.queryEach(ch, "BasePart, Decal, Texture, ParticleEmitter, Beam, Trail, Light, BillboardGui, SurfaceGui, Sound, ColorCorrectionEffect, BlurEffect, BloomEffect, DepthOfFieldEffect, SunRaysEffect", nd.muteClientEntityVisual);
+				nd.scanTree(ch, nd.muteClientEntityVisual, nil, 12);
 			end;
 		end;
 	end;
@@ -3854,11 +3915,19 @@ function nd.bindClientEntityCamera()
 end;
 
 function nd.installClientEntityBypasses()
-	nd.wrapClientEntityModule("Glitch", "noop");
-	nd.wrapClientEntityModule("Void", "noop");
-	nd.wrapClientEntityModule("Shade", "noop");
-	nd.wrapClientEntityModule("Halt", "noop");
 	nd.disconnectClientEntityConns();
+	task.spawn(function()
+		for _, entry in {
+			{ "Glitch", "noop" },
+			{ "Void", "noop" },
+			{ "Shade", "noop" },
+			{ "Halt", "noop" },
+		} do
+			if not nd.enabled then return; end;
+			nd.wrapClientEntityModule(entry[1], entry[2]);
+			task.wait();
+		end;
+	end);
 	nd.bindClientEntityCamera();
 	nd.clientEntityConns.cameraChanged = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 		if nd.enabled then
