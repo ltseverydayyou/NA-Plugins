@@ -1398,7 +1398,7 @@ function nd.figureSolverCmd(...)
 		if index >= 0 and index <= 7 then return index; end;
 		return nil;
 	end;
-	local function readCode()
+	local function readCodePattern()
 		local player = nd.lp();
 		local pg = player and player:FindFirstChildOfClass("PlayerGui");
 		local hintGui = pg and pg:FindFirstChild("PermUI");
@@ -1417,23 +1417,34 @@ function nd.figureSolverCmd(...)
 			end;
 		end;
 		local character = player and player.Character;
+		local backpack = player and player:FindFirstChildOfClass("Backpack");
 		local paper = character and character:FindFirstChild("LibraryHintPaper");
+		if not paper then paper = backpack and backpack:FindFirstChild("LibraryHintPaper"); end;
 		if not paper then
 			local workspacePlayer = workspace:FindFirstChild(player and player.Name or "");
 			paper = workspacePlayer and workspacePlayer:FindFirstChild("LibraryHintPaper");
 		end;
 		local ui = paper and paper:FindFirstChild("UI");
-		if not ui then return nil, "hint paper not equipped"; end;
-		local code = {};
+		if not ui then return nil, "hint paper not found"; end;
+		local pattern = {};
+		local unknown = 0;
 		for i = 1, 5 do
 			local image = ui:FindFirstChild(tostring(i));
 			local index = slotIndex(image);
-			if index == nil or map[index] == nil then
-				return nil, "waiting for all five hint codes";
+			local digit = index ~= nil and map[index] or nil;
+			if digit then
+				pattern[i] = digit;
+			else
+				pattern[i] = false;
+				unknown += 1;
 			end;
-			code[i] = map[index];
 		end;
-		return table.concat(code), nil;
+		return pattern, unknown;
+	end;
+	local function codeKey(pattern)
+		local out = {};
+		for i = 1, 5 do out[i] = pattern[i] or "?"; end;
+		return table.concat(out);
 	end;
 	local function trySolve()
 		if state.busy or nd.isResultsUiVisible() then return; end;
@@ -1442,16 +1453,17 @@ function nd.figureSolverCmd(...)
 		local padlock = room and room:FindFirstChild("Door") and room.Door:FindFirstChild("Padlock");
 		local locked = padlock and padlock:FindFirstChild("Padlocked");
 		if not (room and padlock and locked and locked.Value == true) then return; end;
-		local code = readCode();
-		if not code then return; end;
-		if code == state.lastCode and state.lastRoom == room and tick() - (state.lastAttempt or 0) < 5 then return; end;
+		local pattern, unknown = readCodePattern();
+		if not pattern then return; end;
+		local key = codeKey(pattern);
+		if key == state.lastCode and state.lastRoom == room and tick() - (state.lastAttempt or 0) < 5 then return; end;
 		local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder");
 		local pl = remotes and remotes:FindFirstChild("PL");
 		if not (pl and pl:IsA("RemoteEvent")) then return; end;
 		state.busy = true;
 		state.lastAttempt = tick();
 		state.lastRoom = room;
-		state.lastCode = code;
+		state.lastCode = key;
 		pcall(function()
 			local prompt = padlock:FindFirstChild("ActivateEventPrompt");
 			local player = nd.lp();
@@ -1461,7 +1473,26 @@ function nd.figureSolverCmd(...)
 				fireproximityprompt(prompt, 1, true);
 				task.wait(0.2);
 			end;
-			pl:FireServer(code);
+			if unknown == 0 then
+				pl:FireServer(table.concat(pattern));
+				return;
+			end;
+			local function brute(pos)
+				if not state.running or not nd.enabled or not locked.Parent or locked.Value ~= true then return true; end;
+				if pos > 5 then
+					pl:FireServer(table.concat(pattern));
+					task.wait(0.03);
+					return locked.Value ~= true;
+				end;
+				if pattern[pos] then return brute(pos + 1); end;
+				for digit = 0, 9 do
+					pattern[pos] = tostring(digit);
+					if brute(pos + 1) then return true; end;
+				end;
+				pattern[pos] = false;
+				return false;
+			end;
+			brute(1);
 		end);
 		state.busy = false;
 	end;
