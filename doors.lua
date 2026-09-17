@@ -1477,22 +1477,47 @@ function nd.figureSolverCmd(...)
 				pl:FireServer(table.concat(pattern));
 				return;
 			end;
-			local function brute(pos)
-				if not state.running or not nd.enabled or not locked.Parent or locked.Value ~= true then return true; end;
-				if pos > 5 then
-					pl:FireServer(table.concat(pattern));
+			local cursor = 0;
+			local activeKey = key;
+			while state.running and nd.enabled and locked.Parent and locked.Value == true do
+				local livePattern, liveUnknown = readCodePattern();
+				if not livePattern then break; end;
+				local liveKey = codeKey(livePattern);
+				if liveKey ~= activeKey then
+					pattern = livePattern;
+					unknown = liveUnknown;
+					activeKey = liveKey;
+					state.lastCode = liveKey;
+					cursor = 0;
+				else
+					pattern = livePattern;
+					unknown = liveUnknown;
+				end;
+				if liveUnknown == 0 then
+					pl:FireServer(table.concat(livePattern));
 					task.wait(0.03);
-					return locked.Value ~= true;
+					break;
 				end;
-				if pattern[pos] then return brute(pos + 1); end;
-				for digit = 0, 9 do
-					pattern[pos] = tostring(digit);
-					if brute(pos + 1) then return true; end;
+				local sent = false;
+				while cursor <= 99999 do
+					local code = string.format("%05d", cursor);
+					cursor += 1;
+					local matches = true;
+					for i = 1, 5 do
+						if livePattern[i] and code:sub(i, i) ~= livePattern[i] then
+							matches = false;
+							break;
+						end;
+					end;
+					if matches then
+						pl:FireServer(code);
+						task.wait(0.03);
+						sent = true;
+						break;
+					end;
 				end;
-				pattern[pos] = false;
-				return false;
+				if not sent then break; end;
 			end;
-			brute(1);
 		end);
 		state.busy = false;
 	end;
