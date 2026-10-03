@@ -2848,7 +2848,7 @@ function nd.ensureDoorRealMarker(owner)
 	marker.Name = "NA_RealDoorESP";
 	marker.Adornee = part;
 	marker.AlwaysOnTop = true;
-	marker.Transparency = 0.9;
+	marker.Transparency = 0.5;
 	marker.Size = part.Size;
 	marker.CFrame = CFrame.identity;
 	marker.ZIndex = 10;
