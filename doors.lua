@@ -391,6 +391,7 @@ nd.promptTargets = {
 	"livehintbook",
 	"libraryhintpaper",
 	"pizza",
+	"cubbydoor",
 };
 nd.promptFindTargets = {
 	"stardust",
