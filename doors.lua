@@ -241,8 +241,8 @@ function nd.cleanupRuntime()
 	nd.screechOriginal = nil;
 	nd.screechHook = false;
 	if type(nd.stopSpeedAssist) == "function" then pcall(nd.stopSpeedAssist, true); end;
-	if type(nd.stopDoorSpeed) == "function" then pcall(nd.stopDoorSpeed, true); end;
 	if type(nd.restoreDoorTransparency) == "function" then pcall(nd.restoreDoorTransparency); end;
+	if type(nd.restoreDoorRealMarkers) == "function" then pcall(nd.restoreDoorRealMarkers); end;
 	if nd.doorVisualRoomConns then
 		for room, conn in pairs(nd.doorVisualRoomConns) do
 			nd.disconnectConn(conn);
@@ -397,6 +397,7 @@ nd.promptFindTargets = {
 	"fuse",
 	"keyobtain",
 	"lotus",
+	"scrap",
 };
 nd.espExactTargets = {
 	"rushnew",
@@ -406,6 +407,7 @@ nd.espExactTargets = {
 	"backdoorrush",
 	"livehintbook",
 	"bashmoving",
+	"crusher",
 };
 function nd.safeCmdRun(args)
 	local ctx = nd.cmdCtx;
@@ -1984,7 +1986,8 @@ nd.otherCmds = {
 	{ "lfov", "120" },
 	{ "ln" },
 	{ "lne" },
-	{ "gamma", "0" },
+	{ "grav", "250" },
+	{ "npcesp" },
 };
 nd.noModNames = {
 	a90 = true,
@@ -2783,6 +2786,7 @@ nd.doorTransparencyOriginal = nd.doorTransparencyOriginal or setmetatable({}, { 
 nd.doorVisualRoomConns = nd.doorVisualRoomConns or setmetatable({}, { __mode = "k" });
 nd.doorVisualOwnerConns = nd.doorVisualOwnerConns or setmetatable({}, { __mode = "k" });
 nd.doorVisualOwnerAlpha = nd.doorVisualOwnerAlpha or setmetatable({}, { __mode = "k" });
+nd.doorRealMarkers = nd.doorRealMarkers or setmetatable({}, { __mode = "k" });
 nd.doorVisualGeneration = nd.doorVisualGeneration or 0;
 function nd.isDoorVisualName(name)
 	local n = tostring(name or ""):lower();
@@ -2812,12 +2816,62 @@ function nd.setDoorPartTransparency(part, alpha)
 	end;
 	part.LocalTransparencyModifier = alpha;
 end;
+function nd.getDoorRealMarkerPart(owner)
+	if not owner then return nil; end;
+	if owner:IsA("BasePart") then return owner; end;
+	if owner:IsA("Model") and owner.PrimaryPart and owner.PrimaryPart:IsA("BasePart") then
+		return owner.PrimaryPart;
+	end;
+	local parts = nd.queryDesc(owner, "BasePart");
+	return parts[1];
+end;
+function nd.clearDoorRealMarker(owner)
+	local marker = nd.doorRealMarkers and nd.doorRealMarkers[owner];
+	if marker then
+		pcall(function() marker:Destroy(); end);
+		nd.doorRealMarkers[owner] = nil;
+	end;
+end;
+function nd.ensureDoorRealMarker(owner)
+	if not (owner and owner.Parent) then return; end;
+	local clientOpen = owner:FindFirstChild("ClientOpen");
+	if not (clientOpen and clientOpen:IsA("RemoteEvent")) then
+		nd.clearDoorRealMarker(owner);
+		return;
+	end;
+	local part = nd.getDoorRealMarkerPart(owner);
+	if not part then return; end;
+	local marker = nd.doorRealMarkers[owner];
+	if marker and marker.Parent and marker.Adornee == part then return; end;
+	nd.clearDoorRealMarker(owner);
+	marker = Instance.new("BillboardGui");
+	marker.Name = "NA_RealDoorESP";
+	marker.Adornee = part;
+	marker.AlwaysOnTop = true;
+	marker.LightInfluence = 0;
+	marker.MaxDistance = 250;
+	marker.Size = UDim2.fromOffset(110, 22);
+	marker.StudsOffsetWorldSpace = Vector3.new(0, 2.75, 0);
+	local label = Instance.new("TextLabel");
+	label.Name = "Label";
+	label.BackgroundTransparency = 1;
+	label.Size = UDim2.fromScale(1, 1);
+	label.Font = Enum.Font.GothamBold;
+	label.Text = "REAL DOOR";
+	label.TextColor3 = Color3.fromRGB(100, 255, 140);
+	label.TextScaled = true;
+	label.TextStrokeTransparency = 0;
+	label.Parent = marker;
+	marker.Parent = owner;
+	nd.doorRealMarkers[owner] = marker;
+end;
 function nd.styleDoorOwner(owner)
 	if not (owner and owner.Parent) then return; end;
 	local alpha = nd.getDoorVisualAlpha(owner);
 	local oldAlpha = nd.doorVisualOwnerAlpha[owner];
 	local needsScan = oldAlpha ~= alpha;
 	nd.doorVisualOwnerAlpha[owner] = alpha;
+	nd.ensureDoorRealMarker(owner);
 	if needsScan then
 		if owner:IsA("BasePart") then
 			nd.setDoorPartTransparency(owner, alpha);
@@ -2892,6 +2946,12 @@ function nd.restoreDoorTransparency()
 			pcall(function() part.LocalTransparencyModifier = value; end);
 		end;
 		map[part] = nil;
+	end;
+end;
+function nd.restoreDoorRealMarkers()
+	for owner, marker in pairs(nd.doorRealMarkers or {}) do
+		if marker then pcall(function() marker:Destroy(); end); end;
+		nd.doorRealMarkers[owner] = nil;
 	end;
 end;
 function nd.startDoors()
@@ -3533,222 +3593,6 @@ function nd.startArchivesClockLoop()
 	return true;
 end;
 
-nd.doorSpeedMax = 60;
-nd.doorSpeedInterval = 0.1;
-nd.doorSpeedBindName = "NA_DoorsSpeedOffset";
-nd.doorSpeedExternalTeleportDistance = 4;
-
-function nd.getDoorSpeedHumanoid()
-	local c = nd.gch();
-	if not c then
-		return nil;
-	end;
-	return c:FindFirstChildOfClass("Humanoid");
-end;
-
-function nd.stopDoorSpeed(silent)
-	local localCFrame = nd.doorSpeedLocalCFrame;
-	nd.doorSpeedActive = false;
-	nd.doorSpeedGeneration = (nd.doorSpeedGeneration or 0) + 1;
-	nd.doorSpeedThread = nil;
-	nd.disconnectConn(nd.doorSpeedHeartbeat);
-	nd.doorSpeedHeartbeat = nil;
-	if nd.rs and nd.rs.UnbindFromRenderStep then
-		pcall(function()
-			nd.rs:UnbindFromRenderStep(nd.doorSpeedBindName);
-		end);
-	end;
-	local root = nd.getRoot();
-	if root and typeof(localCFrame) == "CFrame" then
-		pcall(function()
-			root.CFrame = localCFrame;
-		end);
-	end;
-	local hum = nd.getDoorSpeedHumanoid();
-	if hum and tonumber(nd.doorSpeedOriginalWalkSpeed) then
-		pcall(function()
-			hum.WalkSpeed = nd.doorSpeedOriginalWalkSpeed;
-		end);
-	end;
-	nd.doorSpeedRoot = nil;
-	nd.doorSpeedHumanoid = nil;
-	nd.doorSpeedOriginalWalkSpeed = nil;
-	nd.doorSpeedLocalCFrame = nil;
-	nd.doorSpeedServerCFrame = nil;
-	nd.doorSpeedLastBurst = nil;
-	nd.doorSpeedLastWriteCFrame = nil;
-	nd.doorSpeedValue = nil;
-	if not silent and nd.cmdCtx and type(nd.cmdCtx.notify) == "function" then
-		nd.cmdCtx:notify("DOORS speed disabled", 3);
-	end;
-end;
-
-function nd.doorSpeedCFrameNear(a, b, distance)
-	return typeof(a) == "CFrame" and typeof(b) == "CFrame"
-		and (a.Position - b.Position).Magnitude <= (distance or 0.05);
-end;
-
-function nd.adoptDoorSpeedExternalCFrame(currentRoot, observed)
-	if not currentRoot or typeof(observed) ~= "CFrame" then
-		return false;
-	end;
-	local localCFrame = nd.doorSpeedLocalCFrame;
-	if typeof(localCFrame) ~= "CFrame" then
-		nd.doorSpeedLocalCFrame = observed;
-		nd.doorSpeedServerCFrame = observed;
-		nd.doorSpeedLastBurst = os.clock();
-		return true;
-	end;
-	-- A server-track write is expected to be behind the local visual track. Do
-	-- not mistake that intentional offset for a game/client teleport.
-	if nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
-		return false;
-	end;
-	if (observed.Position - localCFrame.Position).Magnitude < (nd.doorSpeedExternalTeleportDistance or 4) then
-		return false;
-	end;
-	-- Adopt clear external teleports into both tracks so RenderStep does not
-	-- immediately snap PivotTo/CFrame/Position changes back to stale data.
-	nd.doorSpeedLocalCFrame = observed;
-	nd.doorSpeedServerCFrame = observed;
-	nd.doorSpeedLastBurst = os.clock();
-	nd.doorSpeedLastWriteCFrame = observed;
-	return true;
-end;
-
-function nd.startDoorSpeed(value)
-	local speed = math.clamp(tonumber(value) or 0, 0, nd.doorSpeedMax);
-	if speed <= 0 then
-		nd.stopDoorSpeed(true);
-		return 0;
-	end;
-
-	local root = nd.getRoot();
-	local hum = nd.getDoorSpeedHumanoid();
-	if not (root and hum) then
-		return nil, "Character is not ready";
-	end;
-
-	if not nd.doorSpeedActive then
-		nd.doorSpeedOriginalWalkSpeed = hum.WalkSpeed;
-		nd.doorSpeedRoot = root;
-		nd.doorSpeedHumanoid = hum;
-		nd.doorSpeedLocalCFrame = root.CFrame;
-		nd.doorSpeedServerCFrame = root.CFrame;
-		nd.doorSpeedLastBurst = os.clock();
-	end;
-
-	nd.doorSpeedValue = speed;
-	nd.doorSpeedActive = true;
-	nd.doorSpeedGeneration = (nd.doorSpeedGeneration or 0) + 1;
-	nd.doorSpeedThread = nil;
-	nd.disconnectConn(nd.doorSpeedHeartbeat);
-	if nd.rs and nd.rs.BindToRenderStep then
-		pcall(function()
-			nd.rs:UnbindFromRenderStep(nd.doorSpeedBindName);
-		end);
-	end;
-	nd.doorSpeedHeartbeat = nd.rs.Heartbeat:Connect(function()
-		if not nd.doorSpeedActive then
-			return;
-		end;
-		local currentRoot = nd.getRoot();
-		local currentHum = nd.getDoorSpeedHumanoid();
-		if not (currentRoot and currentHum) then
-			return;
-		end;
-		if nd.doorSpeedRoot ~= currentRoot then
-			nd.doorSpeedRoot = currentRoot;
-			nd.doorSpeedHumanoid = currentHum;
-			nd.doorSpeedOriginalWalkSpeed = currentHum.WalkSpeed;
-			nd.doorSpeedLocalCFrame = currentRoot.CFrame;
-			nd.doorSpeedServerCFrame = currentRoot.CFrame;
-			nd.doorSpeedLastBurst = os.clock();
-		end;
-		currentHum.WalkSpeed = nd.doorSpeedValue;
-		local observed = currentRoot.CFrame;
-		if not nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
-			nd.adoptDoorSpeedExternalCFrame(currentRoot, observed);
-		end;
-		if not nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
-			nd.doorSpeedLocalCFrame = observed;
-		end;
-		local now = os.clock();
-		local interval = math.max(0.1, tonumber(nd.doorSpeedInterval) or 0.1);
-		if now - (nd.doorSpeedLastBurst or 0) >= interval then
-			nd.doorSpeedServerCFrame = nd.doorSpeedLocalCFrame or observed;
-			nd.doorSpeedLastBurst = now;
-		end;
-		local serverCFrame = nd.doorSpeedServerCFrame or observed;
-		nd.doorSpeedLastWriteCFrame = serverCFrame;
-		pcall(function()
-			currentRoot.CFrame = serverCFrame;
-		end);
-	end);
-	nd.rs:BindToRenderStep(nd.doorSpeedBindName, Enum.RenderPriority.First.Value, function()
-		if not nd.doorSpeedActive then
-			return;
-		end;
-		local currentRoot = nd.getRoot();
-		if not currentRoot then
-			return;
-		end;
-		local observed = currentRoot.CFrame;
-		if not nd.doorSpeedCFrameNear(observed, nd.doorSpeedServerCFrame) then
-			nd.adoptDoorSpeedExternalCFrame(currentRoot, observed);
-		end;
-		local localCFrame = nd.doorSpeedLocalCFrame or observed;
-		nd.doorSpeedLocalCFrame = localCFrame;
-		pcall(function()
-			currentRoot.CFrame = localCFrame;
-		end);
-	end);
-
-	hum.WalkSpeed = speed;
-	return speed;
-end;
-
-function nd.doorSpeedCmd(...)
-	local vals = {...};
-	local v = vals[1];
-	if type(v) == "table" then
-		v = v[1] or v.Speed or v.speed or v.Value or v.value;
-	end;
-
-	if v == nil or tostring(v) == "" then
-		if nd.doorSpeedActive then
-			return "DOORS speed: " .. tostring(nd.doorSpeedValue) .. " / " .. tostring(nd.doorSpeedMax);
-		end;
-		return "DOORS speed is disabled";
-	end;
-
-	local t = tostring(v):lower();
-	if t == "off" or t == "disable" or t == "disabled" or t == "reset" or t == "default" then
-		nd.stopDoorSpeed(true);
-		return "DOORS speed disabled";
-	end;
-
-	local n = tonumber(v);
-	if not n then
-		return "DOORS speed must be a number from 0 to " .. tostring(nd.doorSpeedMax) .. ", or off";
-	end;
-
-	if n <= 0 then
-		nd.stopDoorSpeed(true);
-		return "DOORS speed disabled";
-	end;
-
-	local clamped = math.clamp(n, 0, nd.doorSpeedMax);
-	local applied, err = nd.startDoorSpeed(clamped);
-	if not applied then
-		return err or "Unable to enable DOORS speed";
-	end;
-	if n > nd.doorSpeedMax then
-		return "DOORS speed clamped to " .. tostring(nd.doorSpeedMax);
-	end;
-	return "DOORS speed: " .. tostring(applied);
-end;
-
 nd.clientEntityOriginals = nd.clientEntityOriginals or {};
 nd.clientEntitySoundOriginals = nd.clientEntitySoundOriginals or setmetatable({}, { __mode = "k" });
 nd.clientEntityConns = nd.clientEntityConns or {};
@@ -4108,17 +3952,6 @@ plugin:cmd("nadoors", "doorsna")
 		nd.plugRun(ctx);
 		ctx:notify("NA Doors loaded", 3);
 	end);
-plugin:cmd("doorsspeed", "ds", "dsp", "dspeed")
-	:args("[speed|off]")
-	:info("Sets DOORS movement speed using offset replication (max 60)")
-	:run(function(ctx, ...)
-		nd.cmdCtx = ctx;
-		local msg = nd.doorSpeedCmd(...);
-		if msg ~= nil then
-			ctx:notify(tostring(msg), 3);
-		end;
-	end);
-
 plugin:cmd("doordist", "dooropenrange", "clientopendist", "clientopenrange")
 	:args("[distance|inf]")
 	:info("Sets ClientOpen fire distance")
