@@ -170,6 +170,7 @@ function nd.addCharConn(conn)
 	table.insert(nd.charConns, conn);
 end;
 function nd.cleanupRuntime()
+	if type(nd.stopViewFixes) == "function" then pcall(nd.stopViewFixes); end;
 	if type(nd.stopArchivesClockLoop) == "function" then pcall(nd.stopArchivesClockLoop); end;
 	if type(nd.restoreEyesMotorSpoof) == "function" then pcall(nd.restoreEyesMotorSpoof); end;
 	if type(nd.stopEyesLookSpoof) == "function" then pcall(nd.stopEyesLookSpoof); end;
@@ -994,6 +995,7 @@ if nd.isPoopSploit then
 	end;
 
 	local state = {};
+	nd.ppInfo = state;
 
 	local function snapshot(pp)
 		return {
@@ -1001,7 +1003,8 @@ if nd.isPoopSploit then
 			H = pp.HoldDuration,
 			R = pp.RequiresLineOfSight,
 			D = pp.MaxActivationDistance,
-			X = pp.Exclusivity
+			X = pp.Exclusivity,
+			part = pp.Parent
 		};
 	end;
 
@@ -1259,6 +1262,7 @@ if nd.isPoopSploit then
 	end;
 
 	local function fireOne(pp, o)
+		if nd.manualPP or nd.nativeTouch or os.clock() < (nd.touchUntil or 0) then return; end;
 		if not begin(pp, o) then
 			return;
 		end;
@@ -1278,6 +1282,7 @@ if nd.isPoopSploit then
 				rstep(1);
 			end;
 
+			if nd.manualPP or nd.nativeTouch then return; end;
 			pp:InputHoldBegin();
 
 			local t = o.hold ~= nil and tonumber(o.hold) or 0;
@@ -1287,7 +1292,7 @@ if nd.isPoopSploit then
 				rstep(1);
 			end;
 
-			pp:InputHoldEnd();
+			if not (nd.manualPP and nd.manualPP.pp == pp) then pp:InputHoldEnd(); end;
 			rstep(1);
 		end);
 
@@ -2745,7 +2750,7 @@ end;
 
 function nd.getMainGame()
 	local cached = nd.mainGameCache;
-	if cached and cached.Parent and cached:IsA("ModuleScript") then
+	if cached and cached.Parent and cached:IsA("ModuleScript") and nd.pg() and cached:IsDescendantOf(nd.pg()) then
 		return cached;
 	end;
 	local u = nd.ui();
@@ -3585,289 +3590,743 @@ function nd.startArchivesClockLoop()
 	return true;
 end;
 
-nd.clientEntityOriginals = nd.clientEntityOriginals or {};
-nd.clientEntitySoundOriginals = nd.clientEntitySoundOriginals or setmetatable({}, { __mode = "k" });
-nd.clientEntityConns = nd.clientEntityConns or {};
-nd.clientEntityShadeGeneration = nd.clientEntityShadeGeneration or 0;
+nd.skipCuts = nd.skipCuts ~= false;
+nd.multiPP = nd.multiPP ~= false;
+nd.fixConns = {};
+nd.fxProps = {};
+nd.cutProps = {};
+nd.bodyProps = {};
+nd.ppProps = {};
+nd.ppItems = {};
+nd.entMods = {};
+nd.cutMods = {};
+nd.cutGhosts = {};
+nd.cutCount = 0;
+nd.fixEpoch = (nd.fixEpoch or 0) + 1;
+nd.fxNames = {
+	glitch = true, void = true, shade = true, halt = true, ransom = true, a90 = true,
+	screech = true, screech_noob = true, dread = true, lookman = true, lookmanmodule = true,
+	spiderjumpscare = true, timothy = true, hidemonster = true,
+	livevoidreaction = true, sanityequalizerlive = true, livesanity = true, coldbox = true,
+	ambience_glitch = true, ambience_shade = true, fakeglitchlive = true, glitchscreen = true,
+	dreadvignette = true, ambiencescold = true, ambiencecold = true,
+};
+nd.entNames = {
+	glitch = true, void = true, shade = true, halt = true, ransom = true, a90 = true,
+	screech = true, screech_noob = true, dread = true, lookman = true, lookmanmodule = true,
+	spiderjumpscare = true, hidemonster = true,
+};
 
-function nd.disconnectClientEntityConns()
-	for key, conn in pairs(nd.clientEntityConns or {}) do
-		if conn then
+function nd.fixConn(key, conn)
+	nd.disconnectConn(nd.fixConns[key]);
+	nd.fixConns[key] = conn;
+end;
+
+function nd.unpin(map, obj, restore)
+	local rec = map[obj];
+	if not rec then return; end;
+	rec.dead = true;
+	map[obj] = nil;
+	for _, conn in rec.conns do nd.disconnectConn(conn); end;
+	if restore and obj.Parent then
+		for key, value in rec.orig do
 			pcall(function()
-				conn:Disconnect();
+				if obj[key] == rec.goal[key] then obj[key] = value; end;
 			end);
 		end;
-		nd.clientEntityConns[key] = nil;
+	end;
+end;
+
+function nd.unpinAll(map)
+	local list = {};
+	for obj in map do list[#list + 1] = obj; end;
+	for _, obj in list do nd.unpin(map, obj, true); end;
+end;
+
+function nd.pin(map, obj, key, value)
+	if not (obj and obj.Parent) then return; end;
+	local ok, old = pcall(function() return obj[key]; end);
+	if not ok then return; end;
+	if type(value) == "number" then value = string.unpack("f", string.pack("f", value)); end;
+	local rec = map[obj];
+	if not rec then
+		rec = {orig = {}, goal = {}, conns = {}, pending = {}};
+		map[obj] = rec;
+		rec.conns.gone = obj.Destroying:Connect(function() nd.unpin(map, obj, false); end);
+	end;
+	if rec.orig[key] == nil then
+		rec.orig[key] = old;
+		rec.conns[key] = obj:GetPropertyChangedSignal(key):Connect(function()
+			if rec.dead or not obj.Parent or obj[key] == rec.goal[key] or rec.pending[key] then return; end;
+			rec.pending[key] = true;
+			task.defer(function()
+				rec.pending[key] = nil;
+				if not rec.dead and obj.Parent and obj[key] ~= rec.goal[key] then
+					obj[key] = rec.goal[key];
+				end;
+			end);
+		end);
+	end;
+	rec.goal[key] = value;
+	if old ~= value then pcall(function() obj[key] = value; end); end;
+end;
+
+function nd.hideVisual(map, obj)
+	if obj:IsA("GuiObject") then
+		nd.pin(map, obj, "Visible", false);
+	elseif obj:IsA("Sound") then
+		nd.pin(map, obj, "Volume", 0);
+	elseif obj:IsA("BasePart") then
+		nd.pin(map, obj, "LocalTransparencyModifier", 1);
+	elseif obj:IsA("Decal") or obj:IsA("Texture") then
+		nd.pin(map, obj, "Transparency", 1);
+	elseif obj:IsA("ParticleEmitter") then
+		nd.pin(map, obj, "Enabled", false);
+		nd.pin(map, obj, "Transparency", NumberSequence.new(1));
+		obj:Clear();
+	elseif obj:IsA("Beam") or obj:IsA("Trail") then
+		nd.pin(map, obj, "Enabled", false);
+		nd.pin(map, obj, "Transparency", NumberSequence.new(1));
+	elseif obj:IsA("Light") or obj:IsA("PostEffect") or obj:IsA("SoundEffect")
+		or obj:IsA("BillboardGui") or obj:IsA("SurfaceGui") or obj:IsA("Highlight") then
+		nd.pin(map, obj, "Enabled", false);
 	end;
 end;
 
 function nd.clientEntityRootName(inst)
-	local cam = workspace.CurrentCamera;
-	local p = inst;
-	while p and p ~= cam do
-		local n = tostring(p.Name or ""):lower();
-		if n == "glitch" or n == "void" or n == "shade" or n == "halt" or n == "ransom" or n == "a90" then
-			return n;
-		end;
-		p = p.Parent;
+	local obj = inst;
+	while obj and obj ~= game do
+		local n = obj.Name:lower();
+		if nd.fxNames[n] or n:match("^jumpscare_") or n:match("^ambience_shade") then return n; end;
+		obj = obj.Parent;
 	end;
-	return nil;
 end;
 
 function nd.muteClientEntityVisual(inst)
-	if not inst then
-		return;
-	end;
-	local n = tostring(inst.Name or ""):lower();
-	local rootName = nd.clientEntityRootName(inst);
-	local namedFx = n == "livevoidreaction"
-		or n == "sanityequalizerlive"
-		or n == "ambience_glitch"
-		or n == "ambience_shade"
-		or n == "fakeglitchlive"
-		or n == "glitchscreen"
-		or n == "jumpscare_shade"
-		or n == "jumpscare_halt"
-		or n == "jumpscare_ransom"
-		or n == "jumpscare_a90";
-	if inst:IsA("GuiObject") then
-		if namedFx or rootName then
-			nd.trySet(inst, "Visible", false);
-		end;
-		return;
-	end;
-	if inst:IsA("Sound") then
-		if namedFx or rootName or n:find("glitch", 1, true) or n:find("void", 1, true) or n:find("shade", 1, true) or n:find("ransom", 1, true) then
-			if nd.clientEntitySoundOriginals[inst] == nil then
-				nd.clientEntitySoundOriginals[inst] = inst.Volume;
-			end;
-			nd.trySet(inst, "Volume", 0);
-			pcall(function() inst:Stop(); end);
-		end;
-		return;
-	end;
-	if inst:IsA("EqualizerSoundEffect") then
-		if namedFx or rootName then
-			nd.trySet(inst, "HighGain", 0);
-			nd.trySet(inst, "MidGain", 0);
-			nd.trySet(inst, "LowGain", 0);
-			nd.trySet(inst, "Enabled", false);
-		end;
-		return;
-	end;
-	if inst:IsA("ColorCorrectionEffect") or inst:IsA("BlurEffect") or inst:IsA("BloomEffect") or inst:IsA("DepthOfFieldEffect") or inst:IsA("SunRaysEffect") then
-		if namedFx or rootName then
-			nd.trySet(inst, "Enabled", false);
-		end;
-		return;
-	end;
-	if inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") or inst:IsA("Light") or inst:IsA("BillboardGui") or inst:IsA("SurfaceGui") then
-		if rootName then
-			nd.trySet(inst, "Enabled", false);
-		end;
-		return;
-	end;
-	if inst:IsA("BasePart") then
-		if rootName then
-			nd.trySet(inst, "LocalTransparencyModifier", 1);
-		end;
-		return;
-	end;
-	if inst:IsA("Decal") or inst:IsA("Texture") then
-		if rootName then
-			nd.trySet(inst, "Transparency", 1);
-		end;
-	end;
+	if nd.enabled and inst and nd.clientEntityRootName(inst) then nd.hideVisual(nd.fxProps, inst); end;
 end;
 
 function nd.clearClientEntityVisuals()
-	if nd.isResultsUiVisible() then return; end;
-	local cam = workspace.CurrentCamera;
-	if cam then
-		for _, ch in ipairs(cam:GetChildren()) do
-			nd.muteClientEntityVisual(ch);
-			if ch.Name == "Glitch" or ch.Name == "Shade" or ch.Name == "Halt" or ch.Name == "Ransom" or ch.Name == "A90" then
-				nd.scanTree(ch, nd.muteClientEntityVisual, nil, 12);
-			end;
+	for _, root in {workspace.CurrentCamera, nd.ui(), nd.ss, workspace:FindFirstChild("Entities")} do
+		if root then
+			nd.muteClientEntityVisual(root);
+			nd.queryEach(root, "BasePart, Decal, Texture, GuiObject, Sound, SoundEffect, ParticleEmitter, Beam, Trail, Light, PostEffect, BillboardGui, SurfaceGui, Highlight", nd.muteClientEntityVisual);
 		end;
 	end;
-	local p = nd.lp and nd.lp();
-	local pg = p and p:FindFirstChildOfClass("PlayerGui");
-	local main = pg and pg:FindFirstChild("MainUI");
-	if main then
-		for _, ch in ipairs(main:GetChildren()) do
-			if ch.Name == "FakeGlitchLive" then
-				nd.muteClientEntityVisual(ch);
-			end;
+	for _, obj in workspace:GetChildren() do
+		if nd.clientEntityRootName(obj) then
+			nd.muteClientEntityVisual(obj);
+			nd.queryEach(obj, "BasePart, Decal, Texture, Sound, ParticleEmitter, Beam, Trail", nd.muteClientEntityVisual);
 		end;
-		local frame = main:FindFirstChild("MainFrame");
-		if frame then
-			nd.muteClientEntityVisual(frame:FindFirstChild("GlitchScreen"));
-		end;
-		local jumpscare = main:FindFirstChild("Jumpscare");
-		if jumpscare then
-			for _, name in ipairs({ "Jumpscare_Shade", "Jumpscare_Halt", "Jumpscare_Ransom", "Jumpscare_A90", "Shade", "Halt", "Ransom", "A90" }) do
-				nd.muteClientEntityVisual(jumpscare:FindFirstChild(name, true));
-			end;
-		end;
-	end;
-	local ss = nd.ssrv or __lt.cs("SoundService", __lt.cr);
-	local sm = ss and ss:FindFirstChild("Main");
-	if sm then
-		nd.muteClientEntityVisual(sm:FindFirstChild("SanityEqualizerLive"));
 	end;
 end;
 
-function nd.wrapClientEntityModule(name, mode)
-	local rs = nd.rsrv or __lt.cs("ReplicatedStorage", __lt.cr);
-	local modules = rs and rs:FindFirstChild("ModulesClient");
-	local folder = modules and modules:FindFirstChild("EntityModules");
-	local ms = folder and folder:FindFirstChild(name);
-	if not (ms and ms:IsA("ModuleScript")) then
-		return false;
+function nd.entReply(name)
+	local rems = nd.rsrv:FindFirstChild("RemotesFolder");
+	if not rems then return; end;
+	if name == "screech" or name == "screech_noob" then
+		local rem = rems:FindFirstChild("Screech");
+		if rem then pcall(rem.FireServer, rem, true); end;
+	elseif name == "a90" or name == "ransom" then
+		nd.safeA90();
 	end;
+end;
+
+function nd.patchEntity(ms)
+	if not (nd.enabled and ms and ms:IsA("ModuleScript")) or nd.entMods[ms] then return; end;
+	local name = ms.Name:lower();
+	local seek = name == "seek" and ms.Parent and ms.Parent.Name == "EntityModules";
+	if not nd.entNames[name] and not seek then return; end;
+	local epoch = nd.fixEpoch;
 	local ok, mod = nd.safeRequire(ms);
-	if not ok or type(mod) ~= "table" or type(mod.stuff) ~= "function" then
-		return false;
-	end;
-	if nd.clientEntityOriginals[ms] then
-		return true;
-	end;
-	local original = mod.stuff;
-	nd.clientEntityOriginals[ms] = { module = mod, stuff = original };
-	if mode == "noop" then
-		mod.stuff = function(...)
-			if nd.enabled then
-				task.defer(nd.clearClientEntityVisuals);
-				return nil;
-			end;
-			return original(...);
-		end;
-	elseif mode == "shade" then
-		for _, ch in ipairs(ms:GetChildren()) do
-			if ch:IsA("Sound") then
-				if nd.clientEntitySoundOriginals[ch] == nil then
-					nd.clientEntitySoundOriginals[ch] = ch.Volume;
+	if not ok or epoch ~= nd.fixEpoch or nd.entMods[ms] then return; end;
+	local rec = {name = name, mod = mod, old = {}, wraps = {}};
+	if type(mod) == "table" then
+		for key, fn in mod do
+			if type(fn) == "function" and (key == "stuff" or seek and key == "tease") then
+				rec.old[key] = fn;
+				local wrap = function(...)
+					if not nd.enabled or rec.dead then return fn(...); end;
+					nd.entReply(name);
+					return nil;
 				end;
-				ch.Volume = 0;
+				rec.wraps[key] = wrap;
+				local set = pcall(function() mod[key] = wrap; end);
+				if not set then rec.old[key] = nil; rec.wraps[key] = nil; end;
 			end;
 		end;
-		mod.stuff = function(ctx, room, ...)
-			local lighting = game:GetService("Lighting");
-			local baseline = {
-				FogStart = lighting.FogStart,
-				FogEnd = lighting.FogEnd,
-				FogColor = lighting.FogColor,
-				Ambient = lighting.Ambient
-			};
-			local args = table.pack(...);
-			local result = original(ctx, room, table.unpack(args, 1, args.n));
-			nd.clientEntityShadeGeneration = (nd.clientEntityShadeGeneration or 0) + 1;
-			local generation = nd.clientEntityShadeGeneration;
-			local roomNum = room and tonumber(room.Name);
-			task.spawn(function()
-				local started = os.clock();
-				repeat
-					if not nd.enabled or generation ~= nd.clientEntityShadeGeneration then
-						break;
-					end;
-					pcall(function()
-						lighting.FogStart = baseline.FogStart;
-						lighting.FogEnd = baseline.FogEnd;
-						lighting.FogColor = baseline.FogColor;
-						lighting.Ambient = baseline.Ambient;
-					end);
-					nd.clearClientEntityVisuals();
-					local p = nd.lp and nd.lp();
-					local currentRoom = p and p:GetAttribute("CurrentRoom");
-					if roomNum and type(currentRoom) == "number" and currentRoom > roomNum then
-						break;
-					end;
-					task.wait();
-				until os.clock() - started > 25;
-			end);
-			return result;
+	elseif type(mod) == "function" and nd.hasHook then
+		if name == "a90" and nd.a90Hook or (name == "screech" or name == "screech_noob") and nd.screechHook
+			or name == "spiderjumpscare" and nd.spidHook then return; end;
+		local wrap = function(...)
+			if not nd.enabled or rec.dead then return rec.original(...); end;
+			nd.entReply(name);
+			return nil;
+		end;
+		if type(newcclosure) == "function" then wrap = newcclosure(wrap); end;
+		local hooked, old = pcall(nd.hf, mod, wrap);
+		if not hooked or type(old) ~= "function" then return; end;
+		rec.original = old;
+		if name == "a90" or name == "ransom" then nd.a90Hook = true;
+		elseif name == "screech" or name == "screech_noob" then nd.screechHook = true;
+		elseif name == "spiderjumpscare" then nd.spidHook = true; end;
+	else
+		return;
+	end;
+	nd.entMods[ms] = rec;
+	nd.queryEach(ms, "Sound, ParticleEmitter, Beam, Trail, GuiObject", function(obj) nd.hideVisual(nd.fxProps, obj); end);
+end;
+
+function nd.sceneProxy(ctx)
+	local cam = Instance.new("Camera");
+	cam.CFrame = ctx.cam and ctx.cam.CFrame or CFrame.identity;
+	cam.FieldOfView = ctx.cam and ctx.cam.FieldOfView or 70;
+	nd.cutGhosts[cam] = true;
+	local slots = {stopcam = false, freemouse = false, hideplayers = 0, csgo = CFrame.identity};
+	local keys = {stopcam = true, freemouse = true, hideplayers = true, csgo = true,
+		transitionCam = true, camlock = true, camlockHead = true, camlockstrict = true,
+		disableMovement = true, camoffset = true};
+	local shake = {};
+	setmetatable(shake, {__index = function() return function() return shake; end; end});
+	local proxy = setmetatable({}, {
+		__index = function(_, key)
+			if key == "cam" then return cam; end;
+			if key == "camShaker" then return shake; end;
+			if keys[key] then return slots[key]; end;
+			return ctx[key];
+		end,
+		__newindex = function(_, key, value)
+			if keys[key] or key == "cam" or key == "camShaker" then slots[key] = value;
+			else ctx[key] = value; end;
+		end,
+	});
+	return proxy, cam;
+end;
+
+function nd.runScene(fn, ctx, ...)
+	if not nd.skipCuts or type(ctx) ~= "table" or not ctx.cam then return fn(ctx, ...); end;
+	local proxy, cam = nd.sceneProxy(ctx);
+	local epoch = nd.fixEpoch;
+	nd.cutCount += 1;
+	local vals = table.pack(pcall(fn, proxy, ...));
+	if epoch == nd.fixEpoch then nd.cutCount = math.max(0, nd.cutCount - 1); end;
+	nd.cutGhosts[cam] = nil;
+	cam:Destroy();
+	if not vals[1] then error(vals[2], 0); end;
+	return table.unpack(vals, 2, vals.n);
+end;
+
+function nd.isScene(ms)
+	if not ms:IsA("ModuleScript") then return false; end;
+	if ms.Name:lower():find("cutscene", 1, true) then return true; end;
+	local obj = ms.Parent;
+	while obj and obj ~= game do
+		if obj.Name == "Cutscenes" then return true; end;
+		obj = obj.Parent;
+	end;
+	return false;
+end;
+
+function nd.patchScene(ms)
+	if not nd.skipCuts or not nd.hasHook or not nd.isScene(ms) or nd.cutMods[ms] then return; end;
+	local epoch = nd.fixEpoch;
+	local ok, mod = nd.safeRequire(ms);
+	if not ok or epoch ~= nd.fixEpoch or nd.cutMods[ms] then return; end;
+	local rec = {mod = mod, hooks = {}, dead = false};
+	local function add(fn)
+		local entry = {fn = fn};
+		local wrap = function(ctx, ...)
+			if rec.dead or not nd.skipCuts or not nd.camLive then return entry.old(ctx, ...); end;
+			return nd.runScene(entry.old, ctx, ...);
+		end;
+		if type(newcclosure) == "function" then wrap = newcclosure(wrap); end;
+		local set, old = pcall(nd.hf, fn, wrap);
+		if set and type(old) == "function" then entry.old = old; rec.hooks[#rec.hooks + 1] = entry; end;
+	end;
+	if type(mod) == "function" then add(mod);
+	elseif type(mod) == "table" then
+		for key, fn in mod do
+			if type(fn) == "function" and (key == "stuff" or key == "play" or key == "run" or key == "start") then add(fn); end;
 		end;
 	end;
-	return true;
+	if #rec.hooks > 0 then nd.cutMods[ms] = rec; end;
+end;
+
+function nd.syncClientMods()
+	local epoch = nd.fixEpoch;
+	task.spawn(function()
+		local mods = nd.rsrv:FindFirstChild("ModulesClient");
+		local ents = mods and mods:FindFirstChild("EntityModules");
+		local main = nd.getMainGame();
+		local remote = main and main:FindFirstChild("RemoteListener");
+		local floor = nd.rsrv:FindFirstChild("FloorReplicated");
+		for _, root in {ents, remote and remote:FindFirstChild("Modules"), remote and remote:FindFirstChild("Cutscenes"), mods, floor} do
+			if root then
+				for _, ms in nd.queryDesc(root, "ModuleScript") do
+					if epoch ~= nd.fixEpoch or not nd.camLive then return; end;
+					nd.patchEntity(ms);
+					nd.patchScene(ms);
+					task.wait();
+				end;
+			end;
+		end;
+	end);
+end;
+
+function nd.camCarry(cam, ctx, nextCam)
+	if not (cam and ctx) then return; end;
+	for _, obj in {ctx.baserig, ctx.skybox} do
+		if typeof(obj) == "Instance" and obj.Parent == cam then
+			pcall(function() obj.Parent = nextCam or workspace; end);
+			nd.camAssets = nd.camAssets or {};
+			nd.camAssets[obj] = true;
+		end;
+	end;
+end;
+
+function nd.selectCam()
+	if not nd.camLive or nd.camBusy then return; end;
+	nd.camBusy = true;
+	local ctx = nd.getCtx();
+	local cam = workspace.CurrentCamera;
+	if ctx then
+		local old = nd.liveCam;
+		if not (cam and cam.Parent) then
+			cam = Instance.new("Camera");
+			cam.CFrame = nd.lastCamCf or CFrame.identity;
+			cam.FieldOfView = nd.lastCamFov or 70;
+			cam.Parent = workspace;
+			if workspace.CurrentCamera ~= cam then workspace.CurrentCamera = cam; end;
+		end;
+		if old ~= cam then
+			nd.camCarry(old, ctx, cam);
+			nd.liveCam = cam;
+			nd.fixConn("camGone", cam.Destroying:Connect(function()
+				nd.lastCamCf = cam.CFrame;
+				nd.lastCamFov = cam.FieldOfView;
+				nd.camCarry(cam, nd.camCtx);
+				task.defer(nd.selectCam);
+			end));
+			if nd.enabled then
+				nd.fixConn("camFx", cam.DescendantAdded:Connect(nd.muteClientEntityVisual));
+				nd.queryEach(cam, "BasePart, Decal, Texture, Sound, GuiObject, SoundEffect, PostEffect, ParticleEmitter, Beam, Trail, Light, BillboardGui, SurfaceGui, Highlight", nd.muteClientEntityVisual);
+			end;
+		end;
+		if ctx.cam ~= cam then ctx.cam = cam; end;
+		for obj in nd.camAssets or {} do
+			if obj.Parent then pcall(function() obj.Parent = cam; end); end;
+		end;
+		nd.camAssets = {};
+		nd.camCtx = ctx;
+	end;
+	nd.camBusy = false;
+end;
+
+function nd.startCamFix()
+	if nd.camLive then nd.selectCam(); return; end;
+	nd.camLive = true;
+	nd.selectCam();
+	nd.fixConn("camProp", workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(nd.selectCam));
+	local pg = nd.pg();
+	if pg then
+		nd.fixConn("viewNew", pg.DescendantAdded:Connect(function(obj)
+			nd.muteClientEntityVisual(obj);
+			if obj.Name == "Main_Game" then
+				nd.mainGameCache = nil; nd.ctxCache = nil; nd.ctxCacheModule = nil;
+				task.defer(nd.selectCam);
+				task.defer(nd.syncClientMods);
+				if nd.multiPP then task.defer(nd.makePromptUi); end;
+			elseif obj:IsA("ModuleScript") then
+				task.defer(nd.patchEntity, obj);
+				task.defer(nd.patchScene, obj);
+			end;
+		end));
+	end;
+	nd.rs:BindToRenderStep("NA_DoorsCamFix", 90, function()
+		local ctx = nd.camCtx;
+		if not ctx then return; end;
+		local cam = workspace.CurrentCamera;
+		if cam and cam.Parent and ctx.cam ~= cam then ctx.cam = cam; end;
+		if nd.skipCuts and not ctx.dead and not ctx.freecam and nd.cutCount > 0 then
+			ctx.stopcam = false;
+			ctx.transitionCam = nil;
+		end;
+	end);
+	nd.rs:BindToRenderStep("NA_DoorsCutsceneFix", Enum.RenderPriority.Last.Value + 1, function()
+		local ctx = nd.camCtx;
+		local cam = workspace.CurrentCamera;
+		if not (ctx and cam and cam.Parent) then return; end;
+		if nd.skipCuts and nd.cutCount > 0 and not ctx.dead and not ctx.freecam then
+			local cf = ctx.finalCamCFrame;
+			if typeof(cf) == "CFrame" and cam.CFrame ~= cf then cam.CFrame = cf; end;
+			local fov = tonumber(ctx.fovspring);
+			if fov and cam.FieldOfView ~= fov then cam.FieldOfView = fov; end;
+		end;
+		nd.lastCamCf = cam.CFrame;
+		nd.lastCamFov = cam.FieldOfView;
+	end);
+end;
+
+function nd.bodyPart(obj)
+	if nd.bodyAlpha == nil or not obj.Parent or obj:FindFirstAncestorOfClass("Tool") then return; end;
+	local ch = nd.gch();
+	local owner = obj:IsA("BasePart") and obj or obj.Parent;
+	if not ch or not (owner.Parent == ch or owner:FindFirstAncestorOfClass("Accessory")) then return; end;
+	if obj:IsA("BasePart") then
+		local name = obj.Name:lower();
+		if name == "humanoidrootpart" or name:find("collision", 1, true) or name:find("hitbox", 1, true) then return; end;
+		nd.pin(nd.bodyProps, obj, "Transparency", nd.bodyAlpha);
+		nd.pin(nd.bodyProps, obj, "LocalTransparencyModifier", 0);
+	elseif obj:IsA("Decal") or obj:IsA("Texture") then
+		nd.pin(nd.bodyProps, obj, "Transparency", nd.bodyAlpha);
+		nd.pin(nd.bodyProps, obj, "LocalTransparencyModifier", 0);
+	end;
+end;
+
+function nd.bindBody()
+	nd.unpinAll(nd.bodyProps);
+	nd.disconnectConn(nd.fixConns.bodyDesc);
+	nd.fixConns.bodyDesc = nil;
+	local ch = nd.gch();
+	if nd.bodyAlpha == nil or not ch then return; end;
+	nd.queryEach(ch, "BasePart, Decal, Texture", nd.bodyPart);
+	nd.fixConn("bodyDesc", ch.DescendantAdded:Connect(nd.bodyPart));
+end;
+
+function nd.setBody(alpha)
+	nd.bodyAlpha = alpha;
+	nd.bindBody();
+	if alpha ~= nil then
+		nd.fixConn("bodyChar", nd.lp().CharacterAdded:Connect(function() task.defer(nd.bindBody); end));
+	else
+		nd.disconnectConn(nd.fixConns.bodyChar);
+		nd.fixConns.bodyChar = nil;
+	end;
+end;
+
+function nd.promptPos(pp)
+	local rec = nd.ppInfo and nd.ppInfo[pp];
+	local obj = rec and rec.part or pp.Parent;
+	if not obj or not obj.Parent then return; end;
+	if obj:IsA("Attachment") then return obj.WorldPosition; end;
+	if obj:IsA("BasePart") then return obj.Position; end;
+	if obj:IsA("Model") then return obj:GetPivot().Position; end;
+end;
+
+function nd.manualEnd(input)
+	local rec = nd.manualPP;
+	if not rec or input and rec.input ~= input then return; end;
+	rec.down = false;
+	nd.touchUntil = os.clock() + 0.25;
+	if rec.started and rec.pp and rec.pp.Parent then pcall(rec.pp.InputHoldEnd, rec.pp); end;
+	nd.manualPP = nil;
+end;
+
+function nd.manualBegin(pp, input)
+	if nd.manualPP then nd.manualEnd(); end;
+	local rec = {pp = pp, input = input, down = true};
+	nd.manualPP = rec;
+	nd.touchUntil = os.clock() + 0.25;
+	local epoch = nd.fixEpoch;
+	task.spawn(function()
+		local start = os.clock();
+		while nd.ppInfo and nd.ppInfo[pp] and nd.ppInfo[pp].inFlight do
+			if epoch ~= nd.fixEpoch or not pp.Parent or os.clock() - start > 1 then return; end;
+			task.wait();
+		end;
+		if epoch ~= nd.fixEpoch or not pp.Parent or not pp.Enabled then return; end;
+		if rec.down and nd.manualPP == rec then
+			rec.started = true;
+			pcall(pp.InputHoldBegin, pp);
+		elseif pp.HoldDuration == 0 then
+			pcall(pp.InputHoldBegin, pp);
+			pcall(pp.InputHoldEnd, pp);
+		end;
+	end);
+end;
+
+function nd.dropPrompt(pp)
+	local rec = nd.ppItems[pp];
+	if not rec then return; end;
+	nd.ppItems[pp] = nil;
+	if nd.manualPP and nd.manualPP.pp == pp then nd.manualEnd(); end;
+	for _, conn in rec.conns do nd.disconnectConn(conn); end;
+	if rec.row then rec.row:Destroy(); end;
+	nd.unpin(nd.ppProps, pp, true);
+end;
+
+function nd.trackPrompt(pp, shown)
+	if not nd.multiPP or not (pp and pp:IsA("ProximityPrompt")) or pp.ObjectText == "Hint"
+		or pp.Style ~= Enum.ProximityPromptStyle.Custom then return; end;
+	local busy = nd.ppInfo and nd.ppInfo[pp];
+	if busy and busy.inFlight then return; end;
+	local rec = nd.ppItems[pp];
+	if not rec then
+		rec = {conns = {}, shown = shown ~= false, range = pp.MaxActivationDistance};
+		nd.ppItems[pp] = rec;
+		rec.conns.gone = pp.Destroying:Connect(function() nd.dropPrompt(pp); end);
+		rec.conns.dist = pp:GetPropertyChangedSignal("MaxActivationDistance"):Connect(function()
+			local info = nd.ppInfo and nd.ppInfo[pp];
+			if not (info and info.inFlight) then rec.range = pp.MaxActivationDistance; end;
+		end);
+	elseif shown ~= nil then
+		rec.shown = shown;
+	end;
+	nd.pin(nd.ppProps, pp, "Exclusivity", Enum.ProximityPromptExclusivity.AlwaysShow);
+end;
+
+function nd.makePromptUi()
+	local ui = nd.ui();
+	local frame = ui and ui:FindFirstChild("MainFrame");
+	local mobile = frame and frame:FindFirstChild("MobileButtons");
+	local tmpl = mobile and mobile:FindFirstChild("InteractButton");
+	if not tmpl then return; end;
+	if nd.ppUi and nd.ppUi.Parent == frame then return; end;
+	if nd.ppUi then nd.ppUi:Destroy(); end;
+	for _, rec in nd.ppItems do
+		nd.disconnectConn(rec.conns.begin); nd.disconnectConn(rec.conns.finish);
+		rec.conns.begin = nil; rec.conns.finish = nil; rec.row = nil;
+	end;
+	local pane = Instance.new("ScrollingFrame");
+	pane.Name = "NA_DoorsPrompts";
+	pane.AnchorPoint = Vector2.new(1, 0);
+	pane.Position = UDim2.new(1, -14, 0.1, 0);
+	pane.Size = UDim2.new(0, 212, 0.42, 0);
+	pane.AutomaticCanvasSize = Enum.AutomaticSize.Y;
+	pane.CanvasSize = UDim2.new();
+	pane.BackgroundTransparency = 1;
+	pane.BorderSizePixel = 0;
+	pane.ScrollBarThickness = 4;
+	pane.ScrollingDirection = Enum.ScrollingDirection.Y;
+	pane.ZIndex = 20;
+	pane.Visible = false;
+	pane.Parent = frame;
+	local layout = Instance.new("UIListLayout");
+	layout.Padding = UDim.new(0, 6);
+	layout.SortOrder = Enum.SortOrder.LayoutOrder;
+	layout.Parent = pane;
+	nd.ppUi = pane;
+	nd.ppTmpl = tmpl;
+	local ps = nd.lp():FindFirstChild("PlayerScripts");
+	local service = ps and ps:FindFirstChild("PromptService");
+	local icons = service and service:FindFirstChild("MouseIcons");
+	if icons then local ok, mod = nd.safeRequire(icons); if ok then nd.ppIcons = mod; end; end;
+	nd.fixConn("mainTouch", tmpl.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			nd.nativeTouch = input;
+			nd.touchUntil = os.clock() + 0.25;
+		end;
+	end));
+end;
+
+function nd.promptRow(pp, rec)
+	if rec.row and rec.row.Parent == nd.ppUi then return rec.row; end;
+	local row = Instance.new("Frame");
+	row.Name = "Prompt";
+	row.Size = UDim2.new(1, -6, 0, 54);
+	row.BackgroundColor3 = Color3.fromRGB(23, 22, 20);
+	row.BackgroundTransparency = 0.2;
+	row.BorderSizePixel = 0;
+	row.ZIndex = 20;
+	local corner = Instance.new("UICorner");
+	corner.CornerRadius = UDim.new(0, 6);
+	corner.Parent = row;
+	local icon = nd.ppTmpl:Clone();
+	icon.Name = "Icon";
+	icon.AnchorPoint = Vector2.zero;
+	icon.Position = UDim2.fromOffset(3, 3);
+	icon.Size = UDim2.fromOffset(48, 48);
+	icon.Visible = true;
+	icon.Active = false;
+	icon.ZIndex = 21;
+	for _, obj in icon:QueryDescendants("UIScale, UIAspectRatioConstraint, LocalScript") do obj:Destroy(); end;
+	icon.Parent = row;
+	local text = Instance.new("TextLabel");
+	text.Name = "Label";
+	text.Position = UDim2.fromOffset(56, 4);
+	text.Size = UDim2.new(1, -60, 1, -8);
+	text.BackgroundTransparency = 1;
+	text.Font = Enum.Font.GothamMedium;
+	text.TextSize = 13;
+	text.TextColor3 = Color3.fromRGB(239, 231, 211);
+	text.TextXAlignment = Enum.TextXAlignment.Left;
+	text.TextWrapped = true;
+	text.ZIndex = 21;
+	text.Parent = row;
+	local hit = Instance.new("TextButton");
+	hit.Name = "Touch";
+	hit.Size = UDim2.fromScale(1, 1);
+	hit.BackgroundTransparency = 1;
+	hit.Text = "";
+	hit.ZIndex = 24;
+	hit.Parent = row;
+	rec.conns.begin = hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then nd.manualBegin(pp, input); end;
+	end);
+	rec.conns.finish = hit.InputEnded:Connect(nd.manualEnd);
+	row.Parent = nd.ppUi;
+	rec.row = row;
+	return row;
+end;
+
+function nd.drawPrompts()
+	local pane = nd.ppUi;
+	local cam = workspace.CurrentCamera;
+	local root = nd.getRoot();
+	if not (pane and pane.Parent and cam and root) then return; end;
+	local ctx = nd.camCtx;
+	local active = nd.multiPP and (nd.uis.TouchEnabled or ctx and ctx.controller == "mobile")
+		and not nd.isResultsUiVisible() and not (ctx and ctx.dead);
+	local list = {};
+	for pp, rec in nd.ppItems do
+		if rec.row then rec.row.Visible = false; end;
+		local pos = active and pp.Parent and pp.Enabled and rec.shown and nd.promptPos(pp);
+		if pos then
+			local dist = (root.Position - pos).Magnitude;
+			local _, on = cam:WorldToViewportPoint(pos);
+			if on and dist <= math.min(rec.range, 24) then list[#list + 1] = {pp = pp, rec = rec, dist = dist}; end;
+		end;
+	end;
+	table.sort(list, function(a, b) return a.dist < b.dist; end);
+	for i, item in list do
+		local pp, rec = item.pp, item.rec;
+		local row = nd.promptRow(pp, rec);
+		row.Visible = true;
+		row.LayoutOrder = i;
+		local action = pp.ActionText ~= "" and pp.ActionText or "Interact";
+		local info = nd.ppInfo and nd.ppInfo[pp];
+		local parent = info and info.part or pp.Parent;
+		local name = pp.ObjectText ~= "" and pp.ObjectText or parent.Name;
+		local price = pp:GetAttribute("Price") or parent:GetAttribute("Price");
+		local label = action .. "\n" .. name .. (price and "  " .. tostring(price) or "");
+		if row.Label.Text ~= label then row.Label.Text = label; end;
+		local icon = row.Icon:FindFirstChild("Icon");
+		if icon and nd.ppIcons and type(nd.ppIcons.getIcon) == "function" then
+			local ok, image = pcall(nd.ppIcons.getIcon, action);
+			if ok and type(image) == "string" and icon.Image ~= image then icon.Image = image; end;
+			icon.ImageTransparency = 0;
+		end;
+	end;
+	if pane.Visible ~= (#list > 0) then pane.Visible = #list > 0; end;
+end;
+
+function nd.stopPrompts()
+	nd.manualEnd();
+	nd.nativeTouch = nil;
+	for _, key in {"ppShown", "ppHidden", "ppAdded", "ppBeat", "ppEnded", "ppFocus", "mainTouch"} do
+		nd.disconnectConn(nd.fixConns[key]); nd.fixConns[key] = nil;
+	end;
+	local list = {};
+	for pp in nd.ppItems do list[#list + 1] = pp; end;
+	for _, pp in list do nd.dropPrompt(pp); end;
+	if nd.ppUi then nd.ppUi:Destroy(); end;
+	nd.ppUi = nil; nd.ppTmpl = nil; nd.ppIcons = nil;
+end;
+
+function nd.startPrompts()
+	nd.stopPrompts();
+	if not nd.multiPP then return; end;
+	local pps = __lt.cs("ProximityPromptService", __lt.cr);
+	nd.makePromptUi();
+	nd.fixConn("ppShown", pps.PromptShown:Connect(function(pp) nd.trackPrompt(pp, true); end));
+	nd.fixConn("ppHidden", pps.PromptHidden:Connect(function(pp)
+		local info = nd.ppInfo and nd.ppInfo[pp];
+		local rec = nd.ppItems[pp];
+		if rec and not (info and info.inFlight) then rec.shown = false; end;
+	end));
+	nd.fixConn("ppAdded", workspace.DescendantAdded:Connect(function(obj)
+		if obj:IsA("ProximityPrompt") then nd.trackPrompt(obj); end;
+	end));
+	for _, obj in nd.queryDesc(workspace, "ProximityPrompt[Style = Custom]") do nd.trackPrompt(obj); end;
+	nd.fixConn("ppEnded", nd.uis.InputEnded:Connect(function(input)
+		nd.manualEnd(input);
+		if nd.nativeTouch == input then nd.nativeTouch = nil; nd.touchUntil = os.clock() + 0.25; end;
+	end));
+	nd.fixConn("ppFocus", nd.uis.WindowFocusReleased:Connect(function()
+		nd.manualEnd(); nd.nativeTouch = nil;
+	end));
+	local elapsed = 0;
+	nd.fixConn("ppBeat", nd.rs.Heartbeat:Connect(function(dt)
+		elapsed += dt;
+		if elapsed < 0.1 then return; end;
+		elapsed = 0;
+		nd.drawPrompts();
+	end));
+	nd.drawPrompts();
 end;
 
 function nd.bindClientEntityCamera()
-	local old = nd.clientEntityConns.camera;
-	if old then pcall(function() old:Disconnect(); end); end;
-	nd.clientEntityConns.camera = nil;
-	local cam = workspace.CurrentCamera;
-	if cam then
-		nd.clientEntityConns.camera = cam.DescendantAdded:Connect(function(inst)
-			if nd.enabled then
-				task.defer(nd.muteClientEntityVisual, inst);
-			end;
-		end);
-	end;
+	nd.startCamFix();
+	nd.selectCam();
 end;
 
 function nd.installClientEntityBypasses()
-	nd.disconnectClientEntityConns();
-	task.spawn(function()
-		for _, entry in {
-			{ "Glitch", "noop" },
-			{ "Void", "noop" },
-			{ "Shade", "noop" },
-			{ "Halt", "noop" },
-		} do
-			if not nd.enabled then return; end;
-			nd.wrapClientEntityModule(entry[1], entry[2]);
-			task.wait();
-		end;
-	end);
-	nd.bindClientEntityCamera();
-	nd.clientEntityConns.cameraChanged = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-		if nd.enabled then
-			nd.bindClientEntityCamera();
-			task.defer(nd.clearClientEntityVisuals);
-		end;
-	end);
-	local p = nd.lp and nd.lp();
-	local pg = p and p:FindFirstChildOfClass("PlayerGui");
-	if pg then
-		nd.clientEntityConns.gui = pg.DescendantAdded:Connect(function(inst)
-			if nd.enabled then
-				task.defer(nd.muteClientEntityVisual, inst);
-			end;
-		end);
-	end;
-	local ss = nd.ssrv or __lt.cs("SoundService", __lt.cr);
-	local sm = ss and ss:FindFirstChild("Main");
-	if sm then
-		nd.clientEntityConns.sound = sm.DescendantAdded:Connect(function(inst)
-			if nd.enabled then
-				task.defer(nd.muteClientEntityVisual, inst);
-			end;
-		end);
-	end;
+	nd.startCamFix();
+	nd.syncClientMods();
 	nd.clearClientEntityVisuals();
+	nd.startPrompts();
+	if nd.bodyAlpha ~= nil then nd.setBody(nd.bodyAlpha); end;
+	nd.fixConn("entityAdded", workspace.DescendantAdded:Connect(nd.muteClientEntityVisual));
+	nd.fixConn("soundAdded", nd.ss.DescendantAdded:Connect(nd.muteClientEntityVisual));
+	nd.fixConn("moduleAdded", nd.rsrv.DescendantAdded:Connect(function(obj)
+		if obj:IsA("ModuleScript") then task.defer(nd.patchEntity, obj); task.defer(nd.patchScene, obj); end;
+	end));
 end;
 
 function nd.restoreClientEntityBypasses()
-	nd.clientEntityShadeGeneration = (nd.clientEntityShadeGeneration or 0) + 1;
-	nd.disconnectClientEntityConns();
-	for ms, entry in pairs(nd.clientEntityOriginals or {}) do
-		if entry and entry.module and entry.stuff then
-			pcall(function()
-				entry.module.stuff = entry.stuff;
-			end);
+	for ms, rec in nd.entMods do
+		rec.dead = true;
+		if rec.original then
+			pcall(nd.hf, rec.mod, rec.original);
+			if rec.name == "a90" or rec.name == "ransom" then nd.a90Hook = false;
+			elseif rec.name == "screech" or rec.name == "screech_noob" then nd.screechHook = false;
+			elseif rec.name == "spiderjumpscare" then nd.spidHook = false; end;
+		elseif type(rec.mod) == "table" then
+			for key, old in rec.old do
+				pcall(function() if rec.mod[key] == rec.wraps[key] then rec.mod[key] = old; end; end);
+			end;
 		end;
-		nd.clientEntityOriginals[ms] = nil;
+		nd.entMods[ms] = nil;
 	end;
-	for sound, volume in pairs(nd.clientEntitySoundOriginals or {}) do
-		if sound and sound.Parent then
-			pcall(function()
-				sound.Volume = volume;
-			end);
-		end;
-		nd.clientEntitySoundOriginals[sound] = nil;
+	nd.unpinAll(nd.fxProps);
+	for _, key in {"entityAdded", "soundAdded", "moduleAdded", "camFx"} do
+		nd.disconnectConn(nd.fixConns[key]); nd.fixConns[key] = nil;
 	end;
 end;
+
+function nd.stopViewFixes()
+	nd.camLive = false;
+	nd.fixEpoch += 1;
+	nd.stopPrompts();
+	nd.rs:UnbindFromRenderStep("NA_DoorsCamFix");
+	nd.rs:UnbindFromRenderStep("NA_DoorsCutsceneFix");
+	for key, conn in nd.fixConns do nd.disconnectConn(conn); nd.fixConns[key] = nil; end;
+	for ms, rec in nd.cutMods do
+		rec.dead = true;
+		for _, entry in rec.hooks do pcall(nd.hf, entry.fn, entry.old); end;
+		nd.cutMods[ms] = nil;
+	end;
+	for cam in nd.cutGhosts do cam:Destroy(); nd.cutGhosts[cam] = nil; end;
+	nd.unpinAll(nd.cutProps);
+	nd.unpinAll(nd.bodyProps);
+	nd.unpinAll(nd.ppProps);
+	nd.camCtx = nil; nd.liveCam = nil; nd.camBusy = false; nd.cutCount = 0;
+end;
+
+function nd.fixArg(...)
+	local arg = select(1, ...);
+	if type(arg) == "table" then arg = arg[1]; end;
+	return arg;
+end;
+
+function nd.fixToggle(old, arg)
+	if arg == nil or tostring(arg) == "" then return not old; end;
+	local value = tostring(arg):lower();
+	if value == "on" or value == "true" or value == "1" then return true; end;
+	if value == "off" or value == "false" or value == "0" then return false; end;
+	return nil;
+end;
+
 
 nd.eyesMotorTarget = nil;
 nd.eyesMotorOriginal = nil;
@@ -3893,6 +4352,7 @@ function nd.plugRun(ctx)
 	nd.enabled = true;
 	nd.loaded = true;
 	nd.bindResultsUiGuard();
+	nd.startCamFix();
 	-- PERFTEST Eyes startup disabled;
 	task.defer(nd.enableRansomInvincibility);
 	task.defer(nd.installClientEntityBypasses);
@@ -3975,4 +4435,46 @@ plugin:cmd("figuresolver", "figurecode", "librarycode")
 		if msg ~= nil then
 			ctx:notify(tostring(msg), 3);
 		end;
+	end);
+
+plugin:cmd("doorsprompts", "doorprompts", "doorsmultiprompt")
+	:args("[on|off]")
+	:info("Shows separate mobile controls for nearby custom prompts")
+	:run(function(ctx, ...)
+		local value = nd.fixToggle(nd.multiPP, nd.fixArg(...));
+		if value == nil then ctx:notify("Use doorsprompts on or off", 3); return; end;
+		nd.multiPP = value;
+		nd.startPrompts();
+		ctx:notify("Multiple prompts " .. (value and "ON" or "OFF"), 3);
+	end);
+
+plugin:cmd("doorscutscenes", "doorsskipcuts", "doorsnocutscenes")
+	:args("[on|off]")
+	:info("Skips cutscene camera effects while keeping scene progression")
+	:run(function(ctx, ...)
+		local value = nd.fixToggle(nd.skipCuts, nd.fixArg(...));
+		if value == nil then ctx:notify("Use doorscutscenes on or off", 3); return; end;
+		nd.skipCuts = value;
+		nd.startCamFix();
+		if value then nd.syncClientMods(); end;
+		ctx:notify("Skip cutscenes " .. (value and "ON" or "OFF"), 3);
+	end);
+
+plugin:cmd("doorsbody", "doorbody", "doorsbodytrans")
+	:args("<0-1|off>")
+	:info("Forces your body transparency and restores it with off")
+	:run(function(ctx, ...)
+		local arg = nd.fixArg(...);
+		if tostring(arg):lower() == "off" then
+			nd.setBody(nil);
+			ctx:notify("Body transparency restored", 3);
+			return;
+		end;
+		local alpha = tonumber(arg);
+		if not alpha or alpha ~= alpha or alpha < 0 or alpha > 1 then
+			ctx:notify("Use doorsbody with a number from 0 to 1, or off", 3);
+			return;
+		end;
+		nd.setBody(alpha);
+		ctx:notify("Body transparency: " .. tostring(alpha), 3);
 	end);
