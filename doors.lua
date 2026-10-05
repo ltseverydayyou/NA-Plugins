@@ -1987,14 +1987,15 @@ nd.otherCmds = {
 	{ "autodel", "sideroomdupe" },
 	{ "autodel", "sideroomspace" },
 	{ "autodel", "stairwellcrusher" },
-	{ "strengthen", "inf" },
-	{ "ipp" },
+	{ "loop", "strengthen", "inf" },
+	{ "fastpp", "20" },
 	{ "lenpp" },
 	{ "lfov", "120" },
 	{ "ln" },
 	{ "lne" },
-	{ "grav", "250" },
+	{ "grav", "300" },
 	{ "npcesp" },
+	{ "freverb", "noreverb" }
 };
 nd.noModNames = {
 	a90 = true,
