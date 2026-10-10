@@ -1987,6 +1987,9 @@ nd.otherCmds = {
 	{ "autodel", "sideroomdupe" },
 	{ "autodel", "sideroomspace" },
 	{ "autodel", "stairwellcrusher" },
+	{ "autodel", "Alma" },
+	{ "autodel", "_DespawningAlma" },
+	{ "autodel", "AlmaAudioContainer" },
 	{ "loop", "strengthen", "inf" },
 	{ "fastpp", "20" },
 	{ "lenpp" },
@@ -2648,32 +2651,6 @@ function nd.killAlmaModel(model)
 	end);
 	nd.killAlmaAudio();
 	return true;
-end;
-
-function nd.handleAlmaDescendant(d)
-	if not nd.enabled or not d then
-		return;
-	end;
-	if d.Name == "AlmaAudioContainer" then
-		task.defer(nd.killAlmaAudio);
-		return;
-	end;
-	if d:IsA("Sound") then
-		local n = tostring(d.Name or ""):lower();
-		local parent = d.Parent;
-		if n:find("alma", 1, true) or (parent and parent.Name == "AlmaAudioContainer") then
-			nd.silenceAlmaSound(d);
-		end;
-	end;
-	local model;
-	if d:IsA("Model") then
-		model = d;
-	else
-		model = d:FindFirstAncestorWhichIsA("Model");
-	end;
-	if model and nd.isAlmaModel(model) then
-		task.defer(nd.killAlmaModel, model);
-	end;
 end;
 
 function nd.hookAlma()
@@ -3390,82 +3367,10 @@ function nd.hardDangerSweep()
 	end;
 end;
 
-function nd.handleAlmaCandidate(d)
-	if not nd.enabled or not d then
-		return;
-	end;
-	local n = tostring(d.Name or ""):lower();
-	if n == "almaaudiocontainer" then
-		task.defer(nd.killAlmaAudio);
-		return;
-	end;
-	if not n:find("alma", 1, true) then
-		return;
-	end;
-	local cls = tostring(d.ClassName or "");
-	if cls == "Model" and (n == "alma" or n == "_despawningalma" or nd.isAlmaModel(d)) then
-		task.defer(nd.killAlmaModel, d);
-		return;
-	end;
-	if cls == "Sound" then
-		nd.silenceAlmaSound(d);
-	end;
-end;
-
 function nd.startAlmaBypass()
-	nd.almaSetupGeneration = (nd.almaSetupGeneration or 0) + 1;
-	local generation = nd.almaSetupGeneration;
 	for _, key in { "almaWatch", "almaMiscWatch", "almaEntitiesWatch", "almaRoomsWatch", "almaClientWatch" } do
 		nd.disconnectConn(nd[key]);
 		nd[key] = nil;
-	end;
-	nd.replaceConn("almaWatch", workspace.ChildAdded:Connect(function(d)
-		if nd.enabled then
-			nd.handleAlmaCandidate(d);
-		end;
-	end));
-	local misc = workspace:FindFirstChild("Misc");
-	if misc then
-		nd.replaceConn("almaMiscWatch", misc.ChildAdded:Connect(function(d)
-			if nd.enabled and tostring(d.Name or ""):lower() == "almaaudiocontainer" then
-				task.defer(nd.killAlmaAudio);
-			end;
-		end));
-	end;
-	local entities = workspace:FindFirstChild("Entities");
-	if entities then
-		local existingEntities = entities:GetChildren();
-		task.spawn(function()
-			for _, d in existingEntities do
-				if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
-				nd.handleAlmaCandidate(d);
-				task.wait();
-			end;
-		end);
-		nd.replaceConn("almaEntitiesWatch", entities.ChildAdded:Connect(function(d)
-			if nd.enabled then
-				nd.handleAlmaCandidate(d);
-			end;
-		end));
-	end;
-	local rooms = workspace:FindFirstChild("CurrentRooms");
-	if rooms then
-		nd.replaceConn("almaRoomsWatch", rooms.ChildAdded:Connect(function(room)
-			if not nd.enabled then
-				return;
-			end;
-			nd.Delay(0.5, function()
-				if not (room and room.Parent) then
-					return;
-				end;
-				for _, d in room:GetChildren() do
-					local n = tostring(d.Name or ""):lower();
-					if n == "alma" or n == "_despawningalma" or n == "almaaudiocontainer" then
-						nd.handleAlmaCandidate(d);
-					end;
-				end;
-			end);
-		end));
 	end;
 	local fr = __lt.cm("ReplicatedStorage", "FindFirstChild", "FloorReplicated");
 	local cr = fr and fr:FindFirstChild("ClientRemote");
@@ -3478,24 +3383,8 @@ function nd.startAlmaBypass()
 			end;
 		end));
 	end;
-	local workspaceChildren = workspace:GetChildren();
-	task.spawn(function()
-		for _, d in workspaceChildren do
-			if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
-			local n = tostring(d.Name or ""):lower();
-			if n == "alma" or n == "_despawningalma" or n == "almaaudiocontainer" then
-				nd.handleAlmaCandidate(d);
-			end;
-			task.wait();
-		end;
-	end);
-	task.defer(function()
-		if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
-		nd.killAlmaAudio();
-		task.wait();
-		if not nd.enabled or generation ~= nd.almaSetupGeneration then return; end;
-		nd.hookAlma();
-	end);
+	task.defer(nd.killAlmaAudio);
+	task.defer(nd.hookAlma);
 end;
 
 nd.archivesClockInterval = 0.25;
